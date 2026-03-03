@@ -1,4 +1,3 @@
-// template
 import {
   Inter_400Regular,
   Inter_500Medium,
@@ -14,15 +13,41 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
+import { AuthProvider, useAuth } from "@/lib/auth-context";
+import { TrackingProvider } from "@/lib/tracking-context";
+import { useRouter, useSegments } from "expo-router";
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
+
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { user, isLoading } = useAuth();
+  const segments = useSegments();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (isLoading) return;
+    const inAuthGroup = segments[0] === "auth";
+    if (!user && !inAuthGroup) {
+      router.replace("/auth");
+    } else if (user && inAuthGroup) {
+      router.replace("/");
+    }
+  }, [user, isLoading, segments]);
+
+  return <>{children}</>;
+}
 
 function RootLayoutNav() {
   return (
-    <Stack screenOptions={{ headerBackTitle: "Back" }}>
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-    </Stack>
+    <AuthGate>
+      <Stack screenOptions={{ headerBackTitle: "Back" }}>
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen
+          name="auth"
+          options={{ headerShown: false, gestureEnabled: false }}
+        />
+      </Stack>
+    </AuthGate>
   );
 }
 
@@ -47,7 +72,11 @@ export default function RootLayout() {
       <QueryClientProvider client={queryClient}>
         <GestureHandlerRootView>
           <KeyboardProvider>
-            <RootLayoutNav />
+            <AuthProvider>
+              <TrackingProvider>
+                <RootLayoutNav />
+              </TrackingProvider>
+            </AuthProvider>
           </KeyboardProvider>
         </GestureHandlerRootView>
       </QueryClientProvider>
