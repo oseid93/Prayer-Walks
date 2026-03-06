@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import {
   StyleSheet,
   View,
   Text,
   Pressable,
+  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import MapView, { Polyline } from "react-native-maps";
+import MapView, { Polyline, Camera } from "react-native-maps";
 import { useTracking } from "@/lib/tracking-context";
 import { useAuth } from "@/lib/auth-context";
 import { useQuery } from "@tanstack/react-query";
@@ -30,15 +31,18 @@ export default function NativeMapScreen() {
     distance,
     currentPoints,
     currentLocation,
+    heading,
     startTracking,
     pauseTracking,
     resumeTracking,
     stopTracking,
+    centerOnLocation,
   } = useTracking();
   const { user } = useAuth();
   const mapRef = useRef<MapView>(null);
   const [viewMode, setViewMode] = useState<"personal" | "group">("personal");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [initialLocationSet, setInitialLocationSet] = useState(false);
 
   const { data: coveragePoints } = useQuery<RoutePointData[]>({
     queryKey: ["/api/coverage"],
@@ -68,32 +72,66 @@ export default function NativeMapScreen() {
   }));
 
   useEffect(() => {
-    if (currentLocation && mapRef.current && state === "tracking") {
+    if (currentLocation && mapRef.current && !initialLocationSet) {
       mapRef.current.animateToRegion(
         {
           latitude: currentLocation.latitude,
           longitude: currentLocation.longitude,
-          latitudeDelta: 0.005,
-          longitudeDelta: 0.005,
+          latitudeDelta: 0.008,
+          longitudeDelta: 0.008,
         },
-        500,
+        1000,
       );
+      setInitialLocationSet(true);
     }
-  }, [currentLocation, state]);
+  }, [currentLocation, initialLocationSet]);
 
-  const initialRegion = currentLocation
-    ? {
-        latitude: currentLocation.latitude,
-        longitude: currentLocation.longitude,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
-      }
-    : {
-        latitude: 51.5074,
-        longitude: -0.1278,
-        latitudeDelta: 0.01,
-        longitudeDelta: 0.01,
+  useEffect(() => {
+    if (
+      currentLocation &&
+      mapRef.current &&
+      state === "tracking"
+    ) {
+      const camera: Camera = {
+        center: {
+          latitude: currentLocation.latitude,
+          longitude: currentLocation.longitude,
+        },
+        zoom: 17,
+        heading: heading ?? 0,
+        pitch: 45,
+        altitude: 500,
       };
+      mapRef.current.animateCamera(camera, { duration: 800 });
+    }
+  }, [currentLocation, heading, state]);
+
+  const handleCenterOnLocation = useCallback(async () => {
+    await centerOnLocation();
+    setTimeout(() => {
+      if (mapRef.current) {
+        const loc = currentLocation;
+        if (loc) {
+          mapRef.current.animateToRegion(
+            {
+              latitude: loc.latitude,
+              longitude: loc.longitude,
+              latitudeDelta: 0.005,
+              longitudeDelta: 0.005,
+            },
+            500,
+          );
+        }
+      }
+    }, 500);
+  }, [centerOnLocation, currentLocation]);
+
+  const initialRegion = {
+    latitude: 51.5074,
+    longitude: -0.1278,
+    latitudeDelta: 0.01,
+    longitudeDelta: 0.01,
+  };
 
   return (
     <View style={styles.container}>
@@ -103,6 +141,7 @@ export default function NativeMapScreen() {
         initialRegion={initialRegion}
         showsUserLocation
         showsMyLocationButton={false}
+        showsCompass={false}
         userInterfaceStyle="dark"
         testID="map-view"
       >
@@ -178,25 +217,6 @@ export default function NativeMapScreen() {
             </Text>
           </Pressable>
         </View>
-
-        <Pressable
-          onPress={() => {
-            if (currentLocation && mapRef.current) {
-              mapRef.current.animateToRegion(
-                {
-                  latitude: currentLocation.latitude,
-                  longitude: currentLocation.longitude,
-                  latitudeDelta: 0.005,
-                  longitudeDelta: 0.005,
-                },
-                500,
-              );
-            }
-          }}
-          style={styles.locationButton}
-        >
-          <Feather name="crosshair" size={20} color="#33C3F0" />
-        </Pressable>
       </View>
 
       {state !== "idle" && (
@@ -238,19 +258,40 @@ export default function NativeMapScreen() {
 
       <View style={styles.controlsContainer}>
         {state === "idle" && (
-          <Pressable
-            onPress={startTracking}
-            style={({ pressed }) => [
-              styles.fab,
-              { backgroundColor: "#4CD964", opacity: pressed ? 0.8 : 1 },
-            ]}
-            testID="start-tracking"
-          >
-            <Feather name="play" size={28} color="#fff" />
-          </Pressable>
+          <View style={styles.controlsRow}>
+            <Pressable
+              onPress={handleCenterOnLocation}
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
+              testID="center-location"
+            >
+              <Feather name="crosshair" size={22} color="#33C3F0" />
+            </Pressable>
+            <Pressable
+              onPress={startTracking}
+              style={({ pressed }) => [
+                styles.fab,
+                { backgroundColor: "#4CD964", opacity: pressed ? 0.8 : 1 },
+              ]}
+              testID="start-tracking"
+            >
+              <Feather name="play" size={28} color="#fff" />
+            </Pressable>
+          </View>
         )}
         {state === "tracking" && (
           <View style={styles.controlsRow}>
+            <Pressable
+              onPress={handleCenterOnLocation}
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              <Feather name="crosshair" size={22} color="#33C3F0" />
+            </Pressable>
             <Pressable
               onPress={pauseTracking}
               style={({ pressed }) => [
@@ -275,6 +316,15 @@ export default function NativeMapScreen() {
         )}
         {state === "paused" && (
           <View style={styles.controlsRow}>
+            <Pressable
+              onPress={handleCenterOnLocation}
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              <Feather name="crosshair" size={22} color="#33C3F0" />
+            </Pressable>
             <Pressable
               onPress={resumeTracking}
               style={({ pressed }) => [
@@ -311,7 +361,7 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "flex-start",
     alignItems: "center",
     zIndex: 10,
   },
@@ -339,14 +389,6 @@ const styles = StyleSheet.create({
   },
   modeTextActive: {
     color: "#FFFFFF",
-  },
-  locationButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    backgroundColor: "rgba(15, 15, 35, 0.9)",
-    alignItems: "center",
-    justifyContent: "center",
   },
   statsOverlay: {
     position: "absolute",
@@ -424,7 +466,8 @@ const styles = StyleSheet.create({
   },
   controlsRow: {
     flexDirection: "row",
-    gap: 16,
+    alignItems: "center",
+    gap: 14,
   },
   controlButton: {
     width: 56,
@@ -437,5 +480,18 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
+  },
+  secondaryButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(15, 15, 35, 0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
 });

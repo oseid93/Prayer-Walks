@@ -19,6 +19,7 @@ interface TrackingContextType {
   distance: number;
   currentPoints: TrackingPoint[];
   currentLocation: { latitude: number; longitude: number } | null;
+  heading: number | null;
   sessionId: string | null;
   startTracking: () => Promise<void>;
   pauseTracking: () => void;
@@ -26,6 +27,7 @@ interface TrackingContextType {
   stopTracking: () => Promise<void>;
   hasPermission: boolean;
   requestPermission: () => Promise<boolean>;
+  centerOnLocation: () => Promise<void>;
 }
 
 const TrackingContext = createContext<TrackingContextType | undefined>(undefined);
@@ -49,6 +51,23 @@ function haversineDistance(
   return R * c;
 }
 
+function calculateBearing(
+  lat1: number,
+  lon1: number,
+  lat2: number,
+  lon2: number,
+): number {
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const lat1Rad = (lat1 * Math.PI) / 180;
+  const lat2Rad = (lat2 * Math.PI) / 180;
+  const y = Math.sin(dLon) * Math.cos(lat2Rad);
+  const x =
+    Math.cos(lat1Rad) * Math.sin(lat2Rad) -
+    Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
+  let bearing = (Math.atan2(y, x) * 180) / Math.PI;
+  return (bearing + 360) % 360;
+}
+
 export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<TrackingState>("idle");
   const [elapsedTime, setElapsedTime] = useState(0);
@@ -58,15 +77,18 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     latitude: number;
     longitude: number;
   } | null>(null);
+  const [heading, setHeading] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const locationSubRef = useRef<Location.LocationSubscription | null>(null);
+  const headingSubRef = useRef<Location.LocationSubscription | null>(null);
   const pointsBufferRef = useRef<TrackingPoint[]>([]);
   const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
   const pausedTimeRef = useRef<number>(0);
+  const prevLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -75,7 +97,12 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       const { status } = await Location.getForegroundPermissionsAsync();
-      setHasPermission(status === "granted");
+      if (status !== "granted") {
+        const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
+        setHasPermission(newStatus === "granted");
+      } else {
+        setHasPermission(true);
+      }
     })();
   }, []);
 
@@ -96,9 +123,10 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           }
           return;
         }
-        const { status } = await Location.getForegroundPermissionsAsync();
-        if (status === "granted") {
-          const loc = await Location.getCurrentPositionAsync({});
+        if (hasPermission) {
+          const loc = await Location.getCurrentPositionAsync({
+            accuracy: Location.Accuracy.High,
+          });
           setCurrentLocation({
             latitude: loc.coords.latitude,
             longitude: loc.coords.longitude,
@@ -116,8 +144,36 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     const { status } = await Location.requestForegroundPermissionsAsync();
     const granted = status === "granted";
     setHasPermission(granted);
+    if (granted) {
+      try {
+        const loc = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        setCurrentLocation({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+        });
+      } catch {}
+    }
     return granted;
   }, []);
+
+  const centerOnLocation = useCallback(async () => {
+    if (Platform.OS === "web") return;
+    try {
+      if (!hasPermission) {
+        const granted = await requestPermission();
+        if (!granted) return;
+      }
+      const loc = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
+      setCurrentLocation({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+      });
+    } catch {}
+  }, [hasPermission, requestPermission]);
 
   const syncPoints = useCallback(
     async (sid: string) => {
@@ -135,144 +191,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     [],
   );
 
-  const startTracking = useCallback(async () => {
-    const permitted = await requestPermission();
-    if (!permitted) {
-      Alert.alert(
-        "Permission Required",
-        "Location permission is needed to track your walks.",
-      );
-      return;
-    }
-
-    try {
-      const res = await apiRequest("POST", "/api/sessions");
-      const session = await res.json();
-      const sid = session.id;
-      setSessionId(sid);
-
-      setCurrentPoints([]);
-      setDistance(0);
-      setElapsedTime(0);
-      pointsBufferRef.current = [];
-
-      startTimeRef.current = Date.now();
-      pausedTimeRef.current = 0;
-
-      timerRef.current = setInterval(() => {
-        const now = Date.now();
-        const elapsed = Math.floor(
-          (now - startTimeRef.current - pausedTimeRef.current) / 1000,
-        );
-        setElapsedTime(elapsed);
-      }, 1000);
-
-      if (Platform.OS === "web") {
-        if (navigator.geolocation) {
-          const watchId = navigator.geolocation.watchPosition(
-            (pos) => {
-              const point: TrackingPoint = {
-                latitude: pos.coords.latitude,
-                longitude: pos.coords.longitude,
-                timestamp: new Date().toISOString(),
-                accuracy: pos.coords.accuracy,
-              };
-              setCurrentPoints((prev) => {
-                if (prev.length > 0) {
-                  const last = prev[prev.length - 1];
-                  const d = haversineDistance(
-                    last.latitude,
-                    last.longitude,
-                    point.latitude,
-                    point.longitude,
-                  );
-                  setDistance((prevDist) => prevDist + d);
-                }
-                return [...prev, point];
-              });
-              setCurrentLocation({
-                latitude: point.latitude,
-                longitude: point.longitude,
-              });
-              pointsBufferRef.current.push(point);
-            },
-            () => {},
-            { enableHighAccuracy: true },
-          );
-          locationSubRef.current = { remove: () => navigator.geolocation.clearWatch(watchId) } as any;
-        }
-      } else {
-        const sub = await Location.watchPositionAsync(
-          {
-            accuracy: Location.Accuracy.High,
-            timeInterval: 3000,
-            distanceInterval: 5,
-          },
-          (loc) => {
-            const point: TrackingPoint = {
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
-              timestamp: new Date(loc.timestamp).toISOString(),
-              accuracy: loc.coords.accuracy,
-            };
-            setCurrentPoints((prev) => {
-              if (prev.length > 0) {
-                const last = prev[prev.length - 1];
-                const d = haversineDistance(
-                  last.latitude,
-                  last.longitude,
-                  point.latitude,
-                  point.longitude,
-                );
-                setDistance((prevDist) => prevDist + d);
-              }
-              return [...prev, point];
-            });
-            setCurrentLocation({
-              latitude: loc.coords.latitude,
-              longitude: loc.coords.longitude,
-            });
-            pointsBufferRef.current.push(point);
-          },
-        );
-        locationSubRef.current = sub;
-      }
-
-      syncIntervalRef.current = setInterval(() => {
-        syncPoints(sid);
-      }, 15000);
-
-      setState("tracking");
-    } catch (err) {
-      console.error("Failed to start tracking:", err);
-      Alert.alert("Error", "Failed to start tracking session.");
-    }
-  }, [requestPermission, syncPoints]);
-
-  const pauseTracking = useCallback(() => {
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    if (locationSubRef.current) {
-      locationSubRef.current.remove();
-      locationSubRef.current = null;
-    }
-    pausedTimeRef.current += Date.now() - startTimeRef.current - pausedTimeRef.current - elapsedTime * 1000;
-    setState("paused");
-  }, [elapsedTime]);
-
-  const resumeTracking = useCallback(async () => {
-    const resumeStart = Date.now();
-    startTimeRef.current = resumeStart - elapsedTime * 1000;
-    pausedTimeRef.current = 0;
-
-    timerRef.current = setInterval(() => {
-      const now = Date.now();
-      const elapsed = Math.floor((now - startTimeRef.current) / 1000);
-      setElapsedTime(elapsed);
-    }, 1000);
-
+  const startLocationWatch = useCallback(async () => {
     if (Platform.OS === "web") {
       if (navigator.geolocation) {
         const watchId = navigator.geolocation.watchPosition(
@@ -293,6 +212,14 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
                   point.longitude,
                 );
                 setDistance((prevDist) => prevDist + d);
+                setHeading(
+                  calculateBearing(
+                    last.latitude,
+                    last.longitude,
+                    point.latitude,
+                    point.longitude,
+                  ),
+                );
               }
               return [...prev, point];
             });
@@ -305,7 +232,9 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           () => {},
           { enableHighAccuracy: true },
         );
-        locationSubRef.current = { remove: () => navigator.geolocation.clearWatch(watchId) } as any;
+        locationSubRef.current = {
+          remove: () => navigator.geolocation.clearWatch(watchId),
+        } as any;
       }
     } else {
       const sub = await Location.watchPositionAsync(
@@ -321,19 +250,33 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
             timestamp: new Date(loc.timestamp).toISOString(),
             accuracy: loc.coords.accuracy,
           };
-          setCurrentPoints((prev) => {
-            if (prev.length > 0) {
-              const last = prev[prev.length - 1];
-              const d = haversineDistance(
-                last.latitude,
-                last.longitude,
-                point.latitude,
-                point.longitude,
-              );
+
+          const prev = prevLocationRef.current;
+          if (prev) {
+            const d = haversineDistance(
+              prev.latitude,
+              prev.longitude,
+              point.latitude,
+              point.longitude,
+            );
+            if (d > 0.002) {
               setDistance((prevDist) => prevDist + d);
+              setHeading(
+                calculateBearing(
+                  prev.latitude,
+                  prev.longitude,
+                  point.latitude,
+                  point.longitude,
+                ),
+              );
             }
-            return [...prev, point];
-          });
+          }
+          prevLocationRef.current = {
+            latitude: point.latitude,
+            longitude: point.longitude,
+          };
+
+          setCurrentPoints((prevPts) => [...prevPts, point]);
           setCurrentLocation({
             latitude: loc.coords.latitude,
             longitude: loc.coords.longitude,
@@ -342,20 +285,109 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         },
       );
       locationSubRef.current = sub;
+
+      try {
+        const headingSub = await Location.watchHeadingAsync((h) => {
+          if (h.trueHeading >= 0) {
+            setHeading(h.trueHeading);
+          } else if (h.magHeading >= 0) {
+            setHeading(h.magHeading);
+          }
+        });
+        headingSubRef.current = headingSub;
+      } catch {}
+    }
+  }, []);
+
+  const stopLocationWatch = useCallback(() => {
+    if (locationSubRef.current) {
+      locationSubRef.current.remove();
+      locationSubRef.current = null;
+    }
+    if (headingSubRef.current) {
+      headingSubRef.current.remove();
+      headingSubRef.current = null;
+    }
+  }, []);
+
+  const startTracking = useCallback(async () => {
+    const permitted = await requestPermission();
+    if (!permitted) {
+      Alert.alert(
+        "Permission Required",
+        "Location permission is needed to track your walks.",
+      );
+      return;
     }
 
+    try {
+      const res = await apiRequest("POST", "/api/sessions");
+      const session = await res.json();
+      const sid = session.id;
+      setSessionId(sid);
+
+      setCurrentPoints([]);
+      setDistance(0);
+      setElapsedTime(0);
+      prevLocationRef.current = null;
+      pointsBufferRef.current = [];
+
+      startTimeRef.current = Date.now();
+      pausedTimeRef.current = 0;
+
+      timerRef.current = setInterval(() => {
+        const now = Date.now();
+        const elapsed = Math.floor(
+          (now - startTimeRef.current - pausedTimeRef.current) / 1000,
+        );
+        setElapsedTime(elapsed);
+      }, 1000);
+
+      await startLocationWatch();
+
+      syncIntervalRef.current = setInterval(() => {
+        syncPoints(sid);
+      }, 15000);
+
+      setState("tracking");
+    } catch (err) {
+      console.error("Failed to start tracking:", err);
+      Alert.alert("Error", "Failed to start tracking session.");
+    }
+  }, [requestPermission, syncPoints, startLocationWatch]);
+
+  const pauseTracking = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    stopLocationWatch();
+    pausedTimeRef.current += Date.now() - startTimeRef.current - pausedTimeRef.current - elapsedTime * 1000;
+    setState("paused");
+  }, [elapsedTime, stopLocationWatch]);
+
+  const resumeTracking = useCallback(async () => {
+    const resumeStart = Date.now();
+    startTimeRef.current = resumeStart - elapsedTime * 1000;
+    pausedTimeRef.current = 0;
+
+    timerRef.current = setInterval(() => {
+      const now = Date.now();
+      const elapsed = Math.floor((now - startTimeRef.current) / 1000);
+      setElapsedTime(elapsed);
+    }, 1000);
+
+    await startLocationWatch();
+
     setState("tracking");
-  }, [elapsedTime]);
+  }, [elapsedTime, startLocationWatch]);
 
   const stopTracking = useCallback(async () => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    if (locationSubRef.current) {
-      locationSubRef.current.remove();
-      locationSubRef.current = null;
-    }
+    stopLocationWatch();
     if (syncIntervalRef.current) {
       clearInterval(syncIntervalRef.current);
       syncIntervalRef.current = null;
@@ -381,8 +413,10 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     setCurrentPoints([]);
     setElapsedTime(0);
     setDistance(0);
+    setHeading(null);
+    prevLocationRef.current = null;
     pointsBufferRef.current = [];
-  }, [sessionId, distance, elapsedTime, syncPoints]);
+  }, [sessionId, distance, elapsedTime, syncPoints, stopLocationWatch]);
 
   return (
     <TrackingContext.Provider
@@ -392,6 +426,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         distance,
         currentPoints,
         currentLocation,
+        heading,
         sessionId,
         startTracking,
         pauseTracking,
@@ -399,6 +434,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         stopTracking,
         hasPermission,
         requestPermission,
+        centerOnLocation,
       }}
     >
       {children}
