@@ -3,19 +3,25 @@ interface Point {
   longitude: number;
 }
 
-interface CoverageSegment {
-  start: Point;
-  end: Point;
+interface PointWithSession extends Point {
+  sessionId?: string;
+  timestamp?: string;
+}
+
+interface CoveragePolyline {
+  coordinates: Point[];
   visitCount: number;
   color: string;
   width: number;
 }
 
-const GRID_SIZE = 0.0003;
+const GRID_SIZE = 0.00015;
 
-function gridKey(lat: number, lng: number): string {
-  const gridLat = Math.round(lat / GRID_SIZE) * GRID_SIZE;
-  const gridLng = Math.round(lng / GRID_SIZE) * GRID_SIZE;
+function segmentGridKey(lat1: number, lng1: number, lat2: number, lng2: number): string {
+  const midLat = (lat1 + lat2) / 2;
+  const midLng = (lng1 + lng2) / 2;
+  const gridLat = Math.round(midLat / GRID_SIZE) * GRID_SIZE;
+  const gridLng = Math.round(midLng / GRID_SIZE) * GRID_SIZE;
   return `${gridLat.toFixed(6)},${gridLng.toFixed(6)}`;
 }
 
@@ -33,40 +39,115 @@ export function getVisitWidth(count: number): number {
   return 3;
 }
 
-export function buildCoverageSegments(points: Point[]): CoverageSegment[] {
-  if (points.length < 2) return [];
+function groupPointsBySessions(points: PointWithSession[]): Point[][] {
+  if (points.length === 0) return [];
 
-  const segmentGrid: Map<string, { start: Point; end: Point; count: number }> =
-    new Map();
+  const sessionMap = new Map<string, PointWithSession[]>();
 
-  for (let i = 0; i < points.length - 1; i++) {
-    const start = points[i];
-    const end = points[i + 1];
+  for (const p of points) {
+    const sid = p.sessionId || "default";
+    let arr = sessionMap.get(sid);
+    if (!arr) {
+      arr = [];
+      sessionMap.set(sid, arr);
+    }
+    arr.push(p);
+  }
 
-    const midLat = (start.latitude + end.latitude) / 2;
-    const midLng = (start.longitude + end.longitude) / 2;
-    const key = gridKey(midLat, midLng);
+  const sessions: Point[][] = [];
+  sessionMap.forEach((pts) => {
+    pts.sort((a, b) => {
+      if (a.timestamp && b.timestamp) {
+        return new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime();
+      }
+      return 0;
+    });
+    if (pts.length >= 2) {
+      sessions.push(
+        pts.map((p) => ({ latitude: p.latitude, longitude: p.longitude })),
+      );
+    }
+  });
 
-    const existing = segmentGrid.get(key);
-    if (existing) {
-      existing.count += 1;
-    } else {
-      segmentGrid.set(key, { start, end, count: 1 });
+  return sessions;
+}
+
+function countSegmentVisits(sessions: Point[][]): Map<string, number> {
+  const visitCounts = new Map<string, number>();
+
+  for (const session of sessions) {
+    for (let i = 0; i < session.length - 1; i++) {
+      const key = segmentGridKey(
+        session[i].latitude,
+        session[i].longitude,
+        session[i + 1].latitude,
+        session[i + 1].longitude,
+      );
+      visitCounts.set(key, (visitCounts.get(key) || 0) + 1);
     }
   }
 
-  const segments: CoverageSegment[] = [];
-  segmentGrid.forEach((seg) => {
-    segments.push({
-      start: seg.start,
-      end: seg.end,
-      visitCount: seg.count,
-      color: getVisitColor(seg.count),
-      width: getVisitWidth(seg.count),
-    });
-  });
+  return visitCounts;
+}
 
-  return segments;
+export function buildCoveragePolylines(
+  points: PointWithSession[],
+): CoveragePolyline[] {
+  const sessions = groupPointsBySessions(points);
+  if (sessions.length === 0) return [];
+
+  const visitCounts = countSegmentVisits(sessions);
+
+  const polylines: CoveragePolyline[] = [];
+
+  for (const session of sessions) {
+    if (session.length < 2) continue;
+
+    let currentColor = "";
+    let currentWidth = 0;
+    let currentCount = 0;
+    let currentCoords: Point[] = [];
+
+    for (let i = 0; i < session.length - 1; i++) {
+      const key = segmentGridKey(
+        session[i].latitude,
+        session[i].longitude,
+        session[i + 1].latitude,
+        session[i + 1].longitude,
+      );
+      const count = visitCounts.get(key) || 1;
+      const color = getVisitColor(count);
+      const width = getVisitWidth(count);
+
+      if (color !== currentColor || width !== currentWidth) {
+        if (currentCoords.length >= 2) {
+          polylines.push({
+            coordinates: currentCoords,
+            visitCount: currentCount,
+            color: currentColor,
+            width: currentWidth,
+          });
+        }
+        currentColor = color;
+        currentWidth = width;
+        currentCount = count;
+        currentCoords = [session[i]];
+      }
+
+      currentCoords.push(session[i + 1]);
+    }
+
+    if (currentCoords.length >= 2) {
+      polylines.push({
+        coordinates: currentCoords,
+        visitCount: currentCount,
+        color: currentColor,
+        width: currentWidth,
+      });
+    }
+  }
+
+  return polylines;
 }
 
 export function formatDuration(seconds: number): string {

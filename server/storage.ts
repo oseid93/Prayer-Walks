@@ -12,7 +12,7 @@ import {
   routePoints,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, and, inArray, desc } from "drizzle-orm";
+import { eq, and, inArray, desc, asc } from "drizzle-orm";
 import pg from "pg";
 
 if (!process.env.DATABASE_URL) {
@@ -219,7 +219,8 @@ export class DatabaseStorage implements IStorage {
     return db
       .select()
       .from(routePoints)
-      .where(eq(routePoints.sessionId, sessionId));
+      .where(eq(routePoints.sessionId, sessionId))
+      .orderBy(asc(routePoints.timestamp));
   }
 
   async getUserRoutePoints(userId: string): Promise<RoutePoint[]> {
@@ -232,7 +233,8 @@ export class DatabaseStorage implements IStorage {
     return db
       .select()
       .from(routePoints)
-      .where(inArray(routePoints.sessionId, sessionIds));
+      .where(inArray(routePoints.sessionId, sessionIds))
+      .orderBy(asc(routePoints.timestamp));
   }
 
   async getGroupRoutePoints(groupId: string): Promise<RoutePoint[]> {
@@ -247,7 +249,8 @@ export class DatabaseStorage implements IStorage {
     return db
       .select()
       .from(routePoints)
-      .where(inArray(routePoints.sessionId, sessionIds));
+      .where(inArray(routePoints.sessionId, sessionIds))
+      .orderBy(asc(routePoints.timestamp));
   }
 }
 

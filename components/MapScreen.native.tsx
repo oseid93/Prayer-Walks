@@ -13,7 +13,7 @@ import { useTracking } from "@/lib/tracking-context";
 import { useAuth } from "@/lib/auth-context";
 import { useQuery } from "@tanstack/react-query";
 import {
-  buildCoverageSegments,
+  buildCoveragePolylines,
   formatDuration,
   formatDistance,
 } from "@/lib/coverage-utils";
@@ -21,6 +21,8 @@ import {
 interface RoutePointData {
   latitude: number;
   longitude: number;
+  sessionId?: string;
+  timestamp?: string;
 }
 
 export default function NativeMapScreen() {
@@ -64,7 +66,7 @@ export default function NativeMapScreen() {
       ? groupCoverage
       : coveragePoints || [];
 
-  const coverageSegments = buildCoverageSegments(coverageData);
+  const coveragePolylines = buildCoveragePolylines(coverageData);
 
   const currentTrackPoints = currentPoints.map((p) => ({
     latitude: p.latitude,
@@ -145,12 +147,12 @@ export default function NativeMapScreen() {
         userInterfaceStyle="dark"
         testID="map-view"
       >
-        {coverageSegments.map((seg, i) => (
+        {coveragePolylines.map((poly, i) => (
           <Polyline
             key={`cov-${i}`}
-            coordinates={[seg.start, seg.end]}
-            strokeColor={seg.color}
-            strokeWidth={seg.width}
+            coordinates={poly.coordinates}
+            strokeColor={poly.color}
+            strokeWidth={poly.width}
             lineCap="round"
             lineJoin="round"
           />
