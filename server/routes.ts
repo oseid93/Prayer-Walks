@@ -258,6 +258,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   );
 
   app.get(
+    "/api/sessions/:id/points",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const points = await storage.getSessionRoutePoints(req.params.id);
+        res.json(points);
+      } catch (error) {
+        console.error("Get session points error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
+
+  app.get(
     "/api/sessions",
     requireAuth,
     async (req: Request, res: Response) => {

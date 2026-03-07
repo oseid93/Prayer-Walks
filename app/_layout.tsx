@@ -46,6 +46,10 @@ function RootLayoutNav() {
           name="auth"
           options={{ headerShown: false, gestureEnabled: false }}
         />
+        <Stack.Screen
+          name="session/[id]"
+          options={{ headerShown: false, presentation: "modal" }}
+        />
       </Stack>
     </AuthGate>
   );

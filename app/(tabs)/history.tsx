@@ -7,10 +7,12 @@ import {
   Platform,
   RefreshControl,
   ActivityIndicator,
+  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
+import { useRouter } from "expo-router";
 import { queryClient } from "@/lib/query-client";
 import { formatDuration, formatDistance } from "@/lib/coverage-utils";
 
@@ -25,6 +27,7 @@ interface Session {
 
 export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const webTopInset = Platform.OS === "web" ? 67 : 0;
 
   const {
@@ -64,14 +67,24 @@ export default function HistoryScreen() {
   };
 
   const renderSession = ({ item }: { item: Session }) => (
-    <View style={styles.sessionCard}>
+    <Pressable
+      style={({ pressed }) => [
+        styles.sessionCard,
+        pressed && styles.sessionCardPressed,
+      ]}
+      onPress={() => router.push(`/session/${item.id}`)}
+      testID={`session-${item.id}`}
+    >
       <View style={styles.sessionHeader}>
         <Text style={styles.sessionDate}>{formatDate(item.startedAt)}</Text>
-        {item.isActive && (
-          <View style={styles.activeBadge}>
-            <Text style={styles.activeBadgeText}>Active</Text>
-          </View>
-        )}
+        <View style={styles.sessionRight}>
+          {item.isActive && (
+            <View style={styles.activeBadge}>
+              <Text style={styles.activeBadgeText}>Active</Text>
+            </View>
+          )}
+          <Feather name="chevron-right" size={18} color="#6B7280" />
+        </View>
       </View>
       <View style={styles.sessionStats}>
         <View style={styles.sessionStat}>
@@ -87,7 +100,7 @@ export default function HistoryScreen() {
           </Text>
         </View>
       </View>
-    </View>
+    </Pressable>
   );
 
   return (
@@ -203,10 +216,18 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 10,
   },
+  sessionCardPressed: {
+    backgroundColor: "#252540",
+  },
   sessionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  sessionRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
   },
   sessionDate: {
     fontSize: 15,
