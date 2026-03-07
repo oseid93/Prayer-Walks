@@ -10,12 +10,14 @@ import {
   Platform,
   RefreshControl,
   ActivityIndicator,
-  Alert,
+  Share,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/query-client";
+import { useTracking } from "@/lib/tracking-context";
 
 interface Group {
   id: string;
@@ -26,9 +28,13 @@ interface Group {
 
 export default function GroupsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { state: trackingState, startTracking } = useTracking();
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
+  const [showStartWalkModal, setShowStartWalkModal] = useState(false);
+  const [joinedGroupName, setJoinedGroupName] = useState("");
   const [groupName, setGroupName] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [error, setError] = useState("");
@@ -62,11 +68,13 @@ export default function GroupsScreen() {
       const res = await apiRequest("POST", "/api/groups/join", { code });
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/groups"] });
       setShowJoinModal(false);
       setJoinCode("");
       setError("");
+      setJoinedGroupName(data.name || "the group");
+      setShowStartWalkModal(true);
     },
     onError: (err: any) => {
       setError(err.message || "Failed to join group");
@@ -89,6 +97,22 @@ export default function GroupsScreen() {
     joinMutation.mutate(joinCode.trim().toUpperCase());
   };
 
+  const handleShareCode = async (group: Group) => {
+    try {
+      await Share.share({
+        message: `Join my StreetCover group "${group.name}"! Use code: ${group.code}`,
+      });
+    } catch (_e) {}
+  };
+
+  const handleStartWalkFromJoin = async () => {
+    setShowStartWalkModal(false);
+    if (trackingState === "idle") {
+      await startTracking();
+      router.navigate("/");
+    }
+  };
+
   const renderGroup = ({ item }: { item: Group }) => (
     <View style={styles.groupCard}>
       <View style={styles.groupIcon}>
@@ -101,6 +125,15 @@ export default function GroupsScreen() {
           <Text style={styles.codeValue}>{item.code}</Text>
         </View>
       </View>
+      <Pressable
+        onPress={() => handleShareCode(item)}
+        style={({ pressed }) => [
+          styles.shareButton,
+          pressed && { opacity: 0.6 },
+        ]}
+      >
+        <Feather name="share" size={18} color="#33C3F0" />
+      </Pressable>
     </View>
   );
 
@@ -265,6 +298,45 @@ export default function GroupsScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal
+        visible={showStartWalkModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowStartWalkModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.successIcon}>
+              <Feather name="check-circle" size={48} color="#4CD964" />
+            </View>
+            <Text style={styles.successTitle}>
+              Joined {joinedGroupName}!
+            </Text>
+            <Text style={styles.successSubtext}>
+              Start walking to contribute to your group's coverage
+            </Text>
+            <Pressable
+              onPress={handleStartWalkFromJoin}
+              style={({ pressed }) => [
+                styles.modalButton,
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
+            >
+              <View style={styles.startWalkRow}>
+                <Feather name="play" size={18} color="#FFFFFF" />
+                <Text style={styles.modalButtonText}>Start Walking</Text>
+              </View>
+            </Pressable>
+            <Pressable
+              onPress={() => setShowStartWalkModal(false)}
+              style={styles.skipButton}
+            >
+              <Text style={styles.skipText}>Maybe Later</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -348,6 +420,14 @@ const styles = StyleSheet.create({
     fontWeight: "600" as const,
     fontFamily: "Inter_600SemiBold",
     letterSpacing: 2,
+  },
+  shareButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "rgba(51, 195, 240, 0.1)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   loadingContainer: {
     flex: 1,
@@ -434,5 +514,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600" as const,
     fontFamily: "Inter_600SemiBold",
+  },
+  successIcon: {
+    alignItems: "center",
+    paddingTop: 8,
+  },
+  successTitle: {
+    fontSize: 20,
+    fontWeight: "700" as const,
+    color: "#FFFFFF",
+    textAlign: "center",
+    fontFamily: "Inter_700Bold",
+  },
+  successSubtext: {
+    fontSize: 14,
+    color: "#9CA3AF",
+    textAlign: "center",
+    fontFamily: "Inter_400Regular",
+  },
+  startWalkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  skipButton: {
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  skipText: {
+    color: "#9CA3AF",
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
   },
 });

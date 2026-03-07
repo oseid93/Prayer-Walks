@@ -8,7 +8,7 @@ import {
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -16,13 +16,15 @@ import { queryClient } from "@/lib/query-client";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { TrackingProvider } from "@/lib/tracking-context";
 import { useRouter, useSegments } from "expo-router";
+import OnboardingModal from "@/components/OnboardingModal";
 
 SplashScreen.preventAutoHideAsync();
 
 function AuthGate({ children }: { children: React.ReactNode }) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isNewUser } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
     if (isLoading) return;
@@ -34,7 +36,22 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [user, isLoading, segments]);
 
-  return <>{children}</>;
+  useEffect(() => {
+    if (isNewUser && user) {
+      const timer = setTimeout(() => setShowOnboarding(true), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [isNewUser, user]);
+
+  return (
+    <>
+      {children}
+      <OnboardingModal
+        visible={showOnboarding}
+        onDismiss={() => setShowOnboarding(false)}
+      />
+    </>
+  );
 }
 
 function RootLayoutNav() {
