@@ -395,14 +395,24 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
 
     if (sessionId) {
       await syncPoints(sessionId);
-      try {
-        await apiRequest("PUT", `/api/sessions/${sessionId}/end`, {
-          totalDistance: distance,
-          totalDuration: elapsedTime,
-        });
-      } catch (err) {
-        console.error("Failed to end session:", err);
-      }
+      const endSession = async (retries = 3): Promise<void> => {
+        for (let i = 0; i < retries; i++) {
+          try {
+            await apiRequest("PUT", `/api/sessions/${sessionId}/end`, {
+              totalDistance: distance,
+              totalDuration: elapsedTime,
+            });
+            return;
+          } catch (err) {
+            if (i < retries - 1) {
+              await new Promise((r) => setTimeout(r, 2000 * (i + 1)));
+            } else {
+              console.error("Failed to end session after retries:", err);
+            }
+          }
+        }
+      };
+      await endSession();
     }
 
     queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
