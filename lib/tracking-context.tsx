@@ -89,6 +89,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const startTimeRef = useRef<number>(0);
   const pausedTimeRef = useRef<number>(0);
   const prevLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  const isTrackingActiveRef = useRef(false);
 
   useEffect(() => {
     (async () => {
@@ -196,6 +197,13 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       if (navigator.geolocation) {
         const watchId = navigator.geolocation.watchPosition(
           (pos) => {
+            if (!isTrackingActiveRef.current) {
+              setCurrentLocation({
+                latitude: pos.coords.latitude,
+                longitude: pos.coords.longitude,
+              });
+              return;
+            }
             const point: TrackingPoint = {
               latitude: pos.coords.latitude,
               longitude: pos.coords.longitude,
@@ -244,6 +252,13 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           distanceInterval: 5,
         },
         (loc) => {
+          setCurrentLocation({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+
+          if (!isTrackingActiveRef.current) return;
+
           const point: TrackingPoint = {
             latitude: loc.coords.latitude,
             longitude: loc.coords.longitude,
@@ -277,10 +292,6 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           };
 
           setCurrentPoints((prevPts) => [...prevPts, point]);
-          setCurrentLocation({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-          });
           pointsBufferRef.current.push(point);
         },
       );
@@ -343,6 +354,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         setElapsedTime(elapsed);
       }, 1000);
 
+      isTrackingActiveRef.current = true;
       await startLocationWatch();
 
       syncIntervalRef.current = setInterval(() => {
@@ -357,16 +369,17 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   }, [requestPermission, syncPoints, startLocationWatch]);
 
   const pauseTracking = useCallback(() => {
+    isTrackingActiveRef.current = false;
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    stopLocationWatch();
     pausedTimeRef.current += Date.now() - startTimeRef.current - pausedTimeRef.current - elapsedTime * 1000;
     setState("paused");
-  }, [elapsedTime, stopLocationWatch]);
+  }, [elapsedTime]);
 
   const resumeTracking = useCallback(async () => {
+    isTrackingActiveRef.current = true;
     const resumeStart = Date.now();
     startTimeRef.current = resumeStart - elapsedTime * 1000;
     pausedTimeRef.current = 0;
@@ -377,12 +390,11 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       setElapsedTime(elapsed);
     }, 1000);
 
-    await startLocationWatch();
-
     setState("tracking");
-  }, [elapsedTime, startLocationWatch]);
+  }, [elapsedTime]);
 
   const stopTracking = useCallback(async () => {
+    isTrackingActiveRef.current = false;
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
