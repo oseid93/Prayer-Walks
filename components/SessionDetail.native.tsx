@@ -1,10 +1,12 @@
-import React, { useRef, useEffect } from "react";
+import React, { useRef, useEffect, useCallback } from "react";
 import {
   StyleSheet,
   View,
   Text,
   Pressable,
   ActivityIndicator,
+  Linking,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -101,6 +103,40 @@ export default function SessionDetailScreen() {
     });
   };
 
+  const shareOnWhatsApp = useCallback(async () => {
+    if (!session) return;
+
+    const date = formatDate(session.startedAt);
+    const distance = formatDistance(session.totalDistance || 0);
+    const duration = formatDuration(session.totalDuration || 0);
+
+    const message =
+      `🚶 Just completed a walk with StreetCover!\n\n` +
+      `📅 ${date}\n` +
+      `📍 Distance: ${distance}\n` +
+      `⏱ Duration: ${duration}\n\n` +
+      `Tracking every street I walk 🗺️`;
+
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+    const webUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+
+    const canOpen = await Linking.canOpenURL(whatsappUrl);
+    if (canOpen) {
+      await Linking.openURL(whatsappUrl);
+    } else {
+      const canOpenWeb = await Linking.canOpenURL(webUrl);
+      if (canOpenWeb) {
+        await Linking.openURL(webUrl);
+      } else {
+        Alert.alert(
+          "WhatsApp not found",
+          "Install WhatsApp to share your walk.",
+          [{ text: "OK" }]
+        );
+      }
+    }
+  }, [session]);
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
@@ -112,7 +148,14 @@ export default function SessionDetailScreen() {
           <Feather name="arrow-left" size={24} color="#FFFFFF" />
         </Pressable>
         <Text style={styles.headerTitle}>Walk Details</Text>
-        <View style={{ width: 40 }} />
+        <Pressable
+          onPress={shareOnWhatsApp}
+          style={styles.shareButton}
+          disabled={!session}
+          testID="share-whatsapp-button"
+        >
+          <Feather name="share-2" size={20} color={session ? "#25D366" : "#4B5563"} />
+        </Pressable>
       </View>
 
       {session && (
@@ -176,6 +219,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#1A1A2E",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shareButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
