@@ -46,6 +46,8 @@ export default function NativeMapScreen() {
   const [viewMode, setViewMode] = useState<"personal" | "group">("personal");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
+  const isFollowingRef = useRef(false);
+  const lastCameraUpdateRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,11 +130,23 @@ export default function NativeMapScreen() {
   }, [currentLocation, initialLocationSet]);
 
   useEffect(() => {
+    if (state === "tracking") {
+      isFollowingRef.current = true;
+    } else {
+      isFollowingRef.current = false;
+    }
+  }, [state]);
+
+  useEffect(() => {
     if (
       currentLocation &&
       mapRef.current &&
-      state === "tracking"
+      state === "tracking" &&
+      isFollowingRef.current
     ) {
+      const now = Date.now();
+      if (now - lastCameraUpdateRef.current < 1500) return;
+      lastCameraUpdateRef.current = now;
       const camera: Camera = {
         center: {
           latitude: currentLocation.latitude,
@@ -143,29 +157,39 @@ export default function NativeMapScreen() {
         pitch: 45,
         altitude: 500,
       };
-      mapRef.current.animateCamera(camera, { duration: 800 });
+      mapRef.current.animateCamera(camera, { duration: 600 });
     }
   }, [currentLocation, heading, state]);
 
   const handleCenterOnLocation = useCallback(async () => {
-    await centerOnLocation();
-    setTimeout(() => {
-      if (mapRef.current) {
-        const loc = currentLocation;
-        if (loc) {
-          mapRef.current.animateToRegion(
-            {
-              latitude: loc.latitude,
-              longitude: loc.longitude,
-              latitudeDelta: 0.005,
-              longitudeDelta: 0.005,
-            },
-            500,
-          );
-        }
+    isFollowingRef.current = true;
+    lastCameraUpdateRef.current = 0;
+    const loc = currentLocation;
+    if (loc && mapRef.current) {
+      if (state === "tracking") {
+        const camera: Camera = {
+          center: { latitude: loc.latitude, longitude: loc.longitude },
+          zoom: 17,
+          heading: heading ?? 0,
+          pitch: 45,
+          altitude: 500,
+        };
+        mapRef.current.animateCamera(camera, { duration: 500 });
+      } else {
+        mapRef.current.animateToRegion(
+          {
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            latitudeDelta: 0.005,
+            longitudeDelta: 0.005,
+          },
+          500,
+        );
       }
-    }, 500);
-  }, [centerOnLocation, currentLocation]);
+    } else {
+      await centerOnLocation();
+    }
+  }, [centerOnLocation, currentLocation, state, heading]);
 
   const initialRegion = {
     latitude: 51.5074,
@@ -185,6 +209,7 @@ export default function NativeMapScreen() {
         showsCompass={false}
         userInterfaceStyle="dark"
         testID="map-view"
+        onPanDrag={() => { isFollowingRef.current = false; }}
       >
         {coveragePolylines.map((poly, i) => (
           <Polyline
