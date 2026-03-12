@@ -82,7 +82,7 @@ export default function GroupDetailScreen() {
     enabled: isAdmin,
   });
 
-  type SortKey = "walks" | "distance" | "time";
+  type SortKey = "walks" | "distance" | "time" | "name";
   const [sortBy, setSortBy] = useState<SortKey>("walks");
 
   const sortedMembers = useMemo(() => {
@@ -90,6 +90,7 @@ export default function GroupDetailScreen() {
     return [...members].sort((a, b) => {
       if (sortBy === "walks") return b.sessionCount - a.sessionCount;
       if (sortBy === "distance") return b.totalDistance - a.totalDistance;
+      if (sortBy === "name") return a.displayName.localeCompare(b.displayName);
       return b.totalDuration - a.totalDuration;
     });
   }, [members, sortBy]);
@@ -98,6 +99,7 @@ export default function GroupDetailScreen() {
     { key: "walks", label: "Walks", icon: "activity" },
     { key: "distance", label: "Distance", icon: "map-pin" },
     { key: "time", label: "Time", icon: "clock" },
+    { key: "name", label: "Name", icon: "user" },
   ];
 
   const { data: stats, isLoading: statsLoading } = useQuery<GroupStats>({
