@@ -24,6 +24,8 @@ import {
   formatDuration,
   formatDistance,
 } from "@/lib/coverage-utils";
+import { useFocusEffect } from "expo-router";
+import { subscribeMapFocus, consumeMapFocusZone } from "@/lib/map-focus";
 
 interface RoutePointData {
   latitude: number;
@@ -217,6 +219,23 @@ export default function NativeMapScreen() {
       mapRef.current.animateCamera(camera, { duration: 600 });
     }
   }, [currentLocation, heading, state]);
+
+  useFocusEffect(
+    useCallback(() => {
+      const zone = consumeMapFocusZone();
+      if (zone && mapRef.current) {
+        setTimeout(() => {
+          mapRef.current?.animateToRegion(zone, 600);
+        }, 200);
+      }
+      const unsub = subscribeMapFocus((zone) => {
+        setTimeout(() => {
+          mapRef.current?.animateToRegion(zone, 600);
+        }, 200);
+      });
+      return unsub;
+    }, []),
+  );
 
   const handleCenterOnLocation = useCallback(async () => {
     isFollowingRef.current = true;

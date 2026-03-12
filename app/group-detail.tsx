@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -17,6 +17,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getApiUrl } from "@/lib/query-client";
 import { useAuth } from "@/lib/auth-context";
+import { setMapFocusZone } from "@/lib/map-focus";
 
 interface MemberStats {
   userId: string;
@@ -114,6 +115,24 @@ export default function GroupDetailScreen() {
       Alert.alert("Error", "Failed to delete priority zone");
     },
   });
+
+  const handleZoneTap = useCallback((area: PriorityArea) => {
+    if (!area.coordinates.length) return;
+    const lats = area.coordinates.map((c) => c.latitude);
+    const lngs = area.coordinates.map((c) => c.longitude);
+    const minLat = Math.min(...lats);
+    const maxLat = Math.max(...lats);
+    const minLng = Math.min(...lngs);
+    const maxLng = Math.max(...lngs);
+    const padding = 1.4;
+    setMapFocusZone({
+      latitude: (minLat + maxLat) / 2,
+      longitude: (minLng + maxLng) / 2,
+      latitudeDelta: Math.max((maxLat - minLat) * padding, 0.005),
+      longitudeDelta: Math.max((maxLng - minLng) * padding, 0.005),
+    });
+    router.push("/(tabs)");
+  }, [router]);
 
   const removeMutation = useMutation({
     mutationFn: async (userId: string) => {
@@ -323,12 +342,19 @@ export default function GroupDetailScreen() {
             </View>
           ) : (
             priorityAreas.map((area) => (
-              <View key={area.id} style={styles.zoneCard}>
+              <Pressable
+                key={area.id}
+                style={({ pressed }) => [
+                  styles.zoneCard,
+                  { opacity: pressed ? 0.75 : 1 },
+                ]}
+                onPress={() => handleZoneTap(area)}
+              >
                 <View style={[styles.zoneColorBar, { backgroundColor: area.color }]} />
                 <View style={styles.zoneInfo}>
                   <Text style={styles.zoneName}>{area.name}</Text>
                   <Text style={styles.zonePoints}>
-                    {area.coordinates.length} points
+                    {area.coordinates.length} points — tap to view on map
                   </Text>
                 </View>
                 <Pressable
@@ -354,7 +380,7 @@ export default function GroupDetailScreen() {
                 >
                   <Feather name="trash-2" size={16} color="#FF3B30" />
                 </Pressable>
-              </View>
+              </Pressable>
             ))
           )}
           <View style={{ height: 100 }} />
@@ -377,15 +403,23 @@ export default function GroupDetailScreen() {
             <>
               <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Priority Zones</Text>
               {priorityAreas.map((area) => (
-                <View key={area.id} style={[styles.zoneCard, { marginBottom: 8 }]}>
+                <Pressable
+                  key={area.id}
+                  style={({ pressed }) => [
+                    styles.zoneCard,
+                    { marginBottom: 8, opacity: pressed ? 0.75 : 1 },
+                  ]}
+                  onPress={() => handleZoneTap(area)}
+                >
                   <View style={[styles.zoneColorBar, { backgroundColor: area.color }]} />
                   <View style={styles.zoneInfo}>
                     <Text style={styles.zoneName}>{area.name}</Text>
                     <Text style={styles.zonePoints}>
-                      {area.coordinates.length} points
+                      {area.coordinates.length} points — tap to view on map
                     </Text>
                   </View>
-                </View>
+                  <Feather name="map-pin" size={16} color="#6B7280" style={{ marginRight: 14 }} />
+                </Pressable>
               ))}
             </>
           )}
