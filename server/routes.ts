@@ -314,6 +314,98 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
+  app.get(
+    "/api/my-priority-areas",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const userGroups = await storage.getUserGroups(req.session.userId!);
+        const allAreas = await Promise.all(
+          userGroups.map((g) => storage.getPriorityAreas(g.id)),
+        );
+        const flat = allAreas.flat().map((a) => ({
+          ...a,
+          coordinates: JSON.parse(a.coordinates),
+        }));
+        res.json(flat);
+      } catch (error) {
+        console.error("Get my priority areas error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/groups/:id/priority-areas",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const groupId = req.params.id;
+        const isMember = await storage.isGroupMember(req.session.userId!, groupId);
+        if (!isMember) {
+          return res.status(403).json({ message: "Not a member of this group" });
+        }
+        const areas = await storage.getPriorityAreas(groupId);
+        const parsed = areas.map((a) => ({
+          ...a,
+          coordinates: JSON.parse(a.coordinates),
+        }));
+        res.json(parsed);
+      } catch (error) {
+        console.error("Get priority areas error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
+
+  app.post(
+    "/api/groups/:id/priority-areas",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const groupId = req.params.id;
+        const role = await storage.getMemberRole(req.session.userId!, groupId);
+        if (role !== "admin") {
+          return res.status(403).json({ message: "Admin access required" });
+        }
+        const { name, coordinates, color } = req.body;
+        if (!name || !coordinates || !Array.isArray(coordinates) || coordinates.length < 3) {
+          return res.status(400).json({ message: "Name and at least 3 coordinates required" });
+        }
+        const area = await storage.createPriorityArea(
+          groupId,
+          req.session.userId!,
+          name.trim(),
+          coordinates,
+          color || "#FF9500",
+        );
+        res.json({ ...area, coordinates: JSON.parse(area.coordinates) });
+      } catch (error) {
+        console.error("Create priority area error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/groups/:id/priority-areas/:areaId",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const { id: groupId, areaId } = req.params;
+        const role = await storage.getMemberRole(req.session.userId!, groupId);
+        if (role !== "admin") {
+          return res.status(403).json({ message: "Admin access required" });
+        }
+        await storage.deletePriorityArea(areaId, groupId);
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Delete priority area error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
+
   app.post(
     "/api/sessions",
     requireAuth,

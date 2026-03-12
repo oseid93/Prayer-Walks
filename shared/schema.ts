@@ -90,6 +90,28 @@ export const routePoints = pgTable(
   (table) => [index("route_points_session_idx").on(table.sessionId)],
 );
 
+export const priorityAreas = pgTable(
+  "priority_areas",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    groupId: varchar("group_id")
+      .notNull()
+      .references(() => groups.id),
+    createdById: varchar("created_by_id")
+      .notNull()
+      .references(() => users.id),
+    name: text("name").notNull(),
+    coordinates: text("coordinates").notNull(),
+    color: text("color").notNull().default("#FF9500"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("priority_areas_group_idx").on(table.groupId),
+  ],
+);
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -119,3 +141,4 @@ export type Group = typeof groups.$inferSelect;
 export type GroupMembership = typeof groupMemberships.$inferSelect;
 export type WalkingSession = typeof walkingSessions.$inferSelect;
 export type RoutePoint = typeof routePoints.$inferSelect;
+export type PriorityArea = typeof priorityAreas.$inferSelect;

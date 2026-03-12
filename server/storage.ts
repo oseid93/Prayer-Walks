@@ -5,11 +5,13 @@ import {
   type GroupMembership,
   type WalkingSession,
   type RoutePoint,
+  type PriorityArea,
   users,
   groups,
   groupMemberships,
   walkingSessions,
   routePoints,
+  priorityAreas,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq, and, inArray, desc, asc, sum, count } from "drizzle-orm";
@@ -77,6 +79,16 @@ export interface IStorage {
   getSessionRoutePoints(sessionId: string): Promise<RoutePoint[]>;
   getUserRoutePoints(userId: string): Promise<RoutePoint[]>;
   getGroupRoutePoints(groupId: string): Promise<RoutePoint[]>;
+
+  getPriorityAreas(groupId: string): Promise<PriorityArea[]>;
+  createPriorityArea(
+    groupId: string,
+    createdById: string,
+    name: string,
+    coordinates: Array<{ latitude: number; longitude: number }>,
+    color: string,
+  ): Promise<PriorityArea>;
+  deletePriorityArea(areaId: string, groupId: string): Promise<void>;
 }
 
 function generateGroupCode(): string {
@@ -399,6 +411,45 @@ export class DatabaseStorage implements IStorage {
       .from(routePoints)
       .where(inArray(routePoints.sessionId, sessionIds))
       .orderBy(asc(routePoints.timestamp));
+  }
+
+  async getPriorityAreas(groupId: string): Promise<PriorityArea[]> {
+    return db
+      .select()
+      .from(priorityAreas)
+      .where(eq(priorityAreas.groupId, groupId))
+      .orderBy(asc(priorityAreas.createdAt));
+  }
+
+  async createPriorityArea(
+    groupId: string,
+    createdById: string,
+    name: string,
+    coordinates: Array<{ latitude: number; longitude: number }>,
+    color: string,
+  ): Promise<PriorityArea> {
+    const [area] = await db
+      .insert(priorityAreas)
+      .values({
+        groupId,
+        createdById,
+        name,
+        coordinates: JSON.stringify(coordinates),
+        color,
+      })
+      .returning();
+    return area;
+  }
+
+  async deletePriorityArea(areaId: string, groupId: string): Promise<void> {
+    await db
+      .delete(priorityAreas)
+      .where(
+        and(
+          eq(priorityAreas.id, areaId),
+          eq(priorityAreas.groupId, groupId),
+        ),
+      );
   }
 }
 

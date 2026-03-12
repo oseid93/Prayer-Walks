@@ -33,6 +33,14 @@ interface GroupStats {
   totalDuration: number;
 }
 
+interface PriorityArea {
+  id: string;
+  name: string;
+  color: string;
+  coordinates: Array<{ latitude: number; longitude: number }>;
+  createdAt: string;
+}
+
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
   const m = Math.floor((seconds % 3600) / 60);
@@ -76,6 +84,30 @@ export default function GroupDetailScreen() {
   const { data: adminStats, isLoading: adminStatsLoading } = useQuery<GroupStats>({
     queryKey: [`/api/groups/${id}/stats`],
     enabled: isAdmin,
+  });
+
+  const { data: priorityAreas } = useQuery<PriorityArea[]>({
+    queryKey: [`/api/groups/${id}/priority-areas`],
+  });
+
+  const deleteAreaMutation = useMutation({
+    mutationFn: async (areaId: string) => {
+      const url = new URL(
+        `/api/groups/${id}/priority-areas/${areaId}`,
+        getApiUrl(),
+      );
+      const res = await apiRequest("DELETE", url.pathname);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: [`/api/groups/${id}/priority-areas`],
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-priority-areas"] });
+    },
+    onError: () => {
+      Alert.alert("Error", "Failed to delete priority zone");
+    },
   });
 
   const removeMutation = useMutation({
@@ -251,27 +283,70 @@ export default function GroupDetailScreen() {
       ) : null}
 
       {isAdmin ? (
-        <>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
           <Text style={styles.sectionTitle}>Members</Text>
           {membersLoading ? (
-            <View style={styles.loadingContainer}>
-              <ActivityIndicator color="#33C3F0" />
-            </View>
+            <ActivityIndicator color="#33C3F0" style={{ marginVertical: 20 }} />
           ) : !members || members.length === 0 ? (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>No members yet</Text>
+            <Text style={styles.emptyText}>No members yet</Text>
+          ) : (
+            members.map((item) => (
+              <React.Fragment key={item.userId}>
+                {renderMember({ item })}
+                <View style={{ height: 8 }} />
+              </React.Fragment>
+            ))
+          )}
+
+          <Text style={[styles.sectionTitle, { marginTop: 16 }]}>Priority Zones</Text>
+          {!priorityAreas || priorityAreas.length === 0 ? (
+            <View style={styles.zonesEmpty}>
+              <Feather name="map" size={24} color="#4B5563" />
+              <Text style={styles.zonesEmptyText}>
+                No zones yet. Draw one on the map.
+              </Text>
             </View>
           ) : (
-            <FlatList
-              data={members}
-              renderItem={renderMember}
-              keyExtractor={(item) => item.userId}
-              contentContainerStyle={styles.listContent}
-              showsVerticalScrollIndicator={false}
-              scrollEnabled={members.length > 0}
-            />
+            priorityAreas.map((area) => (
+              <View key={area.id} style={styles.zoneCard}>
+                <View style={[styles.zoneColorBar, { backgroundColor: area.color }]} />
+                <View style={styles.zoneInfo}>
+                  <Text style={styles.zoneName}>{area.name}</Text>
+                  <Text style={styles.zonePoints}>
+                    {area.coordinates.length} points
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={() =>
+                    Alert.alert(
+                      "Delete Zone",
+                      `Remove "${area.name}"? This cannot be undone.`,
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Delete",
+                          style: "destructive",
+                          onPress: () => deleteAreaMutation.mutate(area.id),
+                        },
+                      ],
+                    )
+                  }
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    { opacity: pressed ? 0.6 : 1 },
+                  ]}
+                  hitSlop={8}
+                >
+                  <Feather name="trash-2" size={16} color="#FF3B30" />
+                </Pressable>
+              </View>
+            ))
           )}
-        </>
+          <View style={{ height: 100 }} />
+        </ScrollView>
       ) : (
         <ScrollView
           contentContainerStyle={styles.participantContent}
@@ -285,6 +360,23 @@ export default function GroupDetailScreen() {
               contribute to the shared group stats above.
             </Text>
           </View>
+
+          {priorityAreas && priorityAreas.length > 0 && (
+            <>
+              <Text style={[styles.sectionTitle, { marginTop: 8 }]}>Priority Zones</Text>
+              {priorityAreas.map((area) => (
+                <View key={area.id} style={[styles.zoneCard, { marginBottom: 8 }]}>
+                  <View style={[styles.zoneColorBar, { backgroundColor: area.color }]} />
+                  <View style={styles.zoneInfo}>
+                    <Text style={styles.zoneName}>{area.name}</Text>
+                    <Text style={styles.zonePoints}>
+                      {area.coordinates.length} points
+                    </Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
         </ScrollView>
       )}
 
@@ -584,10 +676,57 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     fontFamily: "Inter_400Regular",
   },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingBottom: 100,
+  },
   participantContent: {
     flexGrow: 1,
     paddingHorizontal: 16,
     paddingBottom: 100,
+  },
+  zonesEmpty: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 16,
+    backgroundColor: "#1A1A2E",
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  zonesEmptyText: {
+    fontSize: 14,
+    color: "#4B5563",
+    fontFamily: "Inter_400Regular",
+    flex: 1,
+  },
+  zoneCard: {
+    backgroundColor: "#1A1A2E",
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    overflow: "hidden",
+    marginBottom: 8,
+  },
+  zoneColorBar: {
+    width: 5,
+    alignSelf: "stretch",
+  },
+  zoneInfo: {
+    flex: 1,
+    padding: 14,
+    gap: 3,
+  },
+  zoneName: {
+    fontSize: 15,
+    fontWeight: "600" as const,
+    color: "#FFFFFF",
+    fontFamily: "Inter_600SemiBold",
+  },
+  zonePoints: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontFamily: "Inter_400Regular",
   },
   participantMessage: {
     flex: 1,
