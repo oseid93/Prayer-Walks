@@ -8,6 +8,8 @@ import {
   TextInput,
   Alert,
   ScrollView,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -300,8 +302,11 @@ export default function NativeMapScreen() {
       }
       return res.json();
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/my-priority-areas"] });
+      queryClient.invalidateQueries({
+        queryKey: [`/api/groups/${variables.groupId}/priority-areas`],
+      });
       setShowSaveModal(false);
       setDrawMode(false);
       setDrawVertices([]);
@@ -668,7 +673,10 @@ export default function NativeMapScreen() {
         animationType="slide"
         onRequestClose={() => setShowSaveModal(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          style={styles.modalOverlay}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Name this Zone</Text>
@@ -754,7 +762,7 @@ export default function NativeMapScreen() {
               </Text>
             </Pressable>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
