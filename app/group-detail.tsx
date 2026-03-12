@@ -99,7 +99,6 @@ export default function GroupDetailScreen() {
     { key: "walks", label: "Walks", icon: "activity" },
     { key: "distance", label: "Distance", icon: "map-pin" },
     { key: "time", label: "Time", icon: "clock" },
-    { key: "name", label: "Name", icon: "user" },
   ];
 
   const { data: stats, isLoading: statsLoading } = useQuery<GroupStats>({
@@ -339,7 +338,16 @@ export default function GroupDetailScreen() {
           contentContainerStyle={styles.scrollContent}
         >
           <View style={styles.sectionRow}>
-            <Text style={styles.sectionTitle}>Members</Text>
+            <Pressable onPress={() => setSortBy("name")} hitSlop={8}>
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  sortBy === "name" && { color: "#33C3F0" },
+                ]}
+              >
+                Members
+              </Text>
+            </Pressable>
             {!membersLoading && members && members.length > 0 && (
               <View style={styles.sortPills}>
                 {SORT_OPTIONS.map((opt) => (
