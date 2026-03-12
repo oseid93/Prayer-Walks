@@ -16,6 +16,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getApiUrl } from "@/lib/query-client";
+import { useAuth } from "@/lib/auth-context";
 
 interface MemberStats {
   userId: string;
@@ -69,6 +70,7 @@ export default function GroupDetailScreen() {
     newRole: string;
   } | null>(null);
 
+  const { user } = useAuth();
   const isAdmin = initialRole === "admin";
 
   const { data: members, isLoading: membersLoading } = useQuery<MemberStats[]>({
@@ -161,6 +163,11 @@ export default function GroupDetailScreen() {
               <Text style={styles.adminBadgeText}>Admin</Text>
             </View>
           )}
+          {item.userId === user?.id && (
+            <View style={styles.youBadge}>
+              <Text style={styles.youBadgeText}>You</Text>
+            </View>
+          )}
         </View>
         <View style={styles.memberStats}>
           <View style={styles.statPill}>
@@ -181,37 +188,39 @@ export default function GroupDetailScreen() {
           </View>
         </View>
       </View>
-      <View style={styles.memberActions}>
-        <Pressable
-          onPress={() =>
-            setConfirmRoleChange({
-              member: item,
-              newRole: item.role === "admin" ? "participant" : "admin",
-            })
-          }
-          style={({ pressed }) => [
-            styles.actionBtn,
-            { opacity: pressed ? 0.6 : 1 },
-          ]}
-          hitSlop={8}
-        >
-          <Feather
-            name={item.role === "admin" ? "shield-off" : "shield"}
-            size={16}
-            color={item.role === "admin" ? "#FF9500" : "#33C3F0"}
-          />
-        </Pressable>
-        <Pressable
-          onPress={() => setConfirmRemove(item)}
-          style={({ pressed }) => [
-            styles.actionBtn,
-            { opacity: pressed ? 0.6 : 1 },
-          ]}
-          hitSlop={8}
-        >
-          <Feather name="user-x" size={16} color="#FF3B30" />
-        </Pressable>
-      </View>
+      {item.userId !== user?.id && (
+        <View style={styles.memberActions}>
+          <Pressable
+            onPress={() =>
+              setConfirmRoleChange({
+                member: item,
+                newRole: item.role === "admin" ? "participant" : "admin",
+              })
+            }
+            style={({ pressed }) => [
+              styles.actionBtn,
+              { opacity: pressed ? 0.6 : 1 },
+            ]}
+            hitSlop={8}
+          >
+            <Feather
+              name={item.role === "admin" ? "shield-off" : "shield"}
+              size={16}
+              color={item.role === "admin" ? "#FF9500" : "#33C3F0"}
+            />
+          </Pressable>
+          <Pressable
+            onPress={() => setConfirmRemove(item)}
+            style={({ pressed }) => [
+              styles.actionBtn,
+              { opacity: pressed ? 0.6 : 1 },
+            ]}
+            hitSlop={8}
+          >
+            <Feather name="user-x" size={16} color="#FF3B30" />
+          </Pressable>
+        </View>
+      )}
     </View>
   );
 
@@ -626,6 +635,18 @@ const styles = StyleSheet.create({
   adminBadgeText: {
     fontSize: 11,
     color: "#FFCC00",
+    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600" as const,
+  },
+  youBadge: {
+    backgroundColor: "rgba(51, 195, 240, 0.12)",
+    borderRadius: 6,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+  },
+  youBadgeText: {
+    fontSize: 11,
+    color: "#33C3F0",
     fontFamily: "Inter_600SemiBold",
     fontWeight: "600" as const,
   },
