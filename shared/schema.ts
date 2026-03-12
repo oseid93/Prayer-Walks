@@ -46,6 +46,7 @@ export const groupMemberships = pgTable(
     groupId: varchar("group_id")
       .notNull()
       .references(() => groups.id),
+    role: text("role").notNull().default("participant"),
     joinedAt: timestamp("joined_at").defaultNow().notNull(),
   },
   (table) => [

@@ -167,12 +167,130 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/groups", requireAuth, async (req: Request, res: Response) => {
     try {
       const userGroups = await storage.getUserGroups(req.session.userId!);
-      res.json(userGroups);
+      const groupsWithRole = await Promise.all(
+        userGroups.map(async (g) => {
+          const role = await storage.getMemberRole(req.session.userId!, g.id);
+          return { ...g, role: role ?? "participant" };
+        }),
+      );
+      res.json(groupsWithRole);
     } catch (error) {
       console.error("Get groups error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
+
+  app.get(
+    "/api/groups/:id/my-role",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const groupId = req.params.id;
+        const role = await storage.getMemberRole(req.session.userId!, groupId);
+        if (!role) {
+          return res.status(403).json({ message: "Not a member of this group" });
+        }
+        res.json({ role });
+      } catch (error) {
+        console.error("Get role error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/groups/:id/stats",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const groupId = req.params.id;
+        const isMember = await storage.isGroupMember(req.session.userId!, groupId);
+        if (!isMember) {
+          return res.status(403).json({ message: "Not a member of this group" });
+        }
+        const stats = await storage.getGroupStats(groupId);
+        res.json(stats);
+      } catch (error) {
+        console.error("Get group stats error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
+
+  app.get(
+    "/api/groups/:id/members",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const groupId = req.params.id;
+        const role = await storage.getMemberRole(req.session.userId!, groupId);
+        if (!role) {
+          return res.status(403).json({ message: "Not a member of this group" });
+        }
+        if (role !== "admin") {
+          return res.status(403).json({ message: "Admin access required" });
+        }
+        const members = await storage.getGroupMembersWithStats(groupId);
+        res.json(members);
+      } catch (error) {
+        console.error("Get members error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
+
+  app.patch(
+    "/api/groups/:id/members/:userId/role",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const { id: groupId, userId: targetUserId } = req.params;
+        const { role } = req.body;
+        if (!role || !["admin", "participant"].includes(role)) {
+          return res.status(400).json({ message: "Invalid role" });
+        }
+        const myRole = await storage.getMemberRole(req.session.userId!, groupId);
+        if (myRole !== "admin") {
+          return res.status(403).json({ message: "Admin access required" });
+        }
+        const targetRole = await storage.getMemberRole(targetUserId, groupId);
+        if (!targetRole) {
+          return res.status(404).json({ message: "Member not found" });
+        }
+        await storage.setMemberRole(targetUserId, groupId, role);
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Set role error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
+
+  app.delete(
+    "/api/groups/:id/members/:userId",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const { id: groupId, userId: targetUserId } = req.params;
+        const myRole = await storage.getMemberRole(req.session.userId!, groupId);
+        if (myRole !== "admin") {
+          return res.status(403).json({ message: "Admin access required" });
+        }
+        if (targetUserId === req.session.userId) {
+          return res.status(400).json({ message: "Cannot remove yourself" });
+        }
+        const targetRole = await storage.getMemberRole(targetUserId, groupId);
+        if (!targetRole) {
+          return res.status(404).json({ message: "Member not found" });
+        }
+        await storage.removeMember(targetUserId, groupId);
+        res.json({ success: true });
+      } catch (error) {
+        console.error("Remove member error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
 
   app.get(
     "/api/groups/:id/coverage",

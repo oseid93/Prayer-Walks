@@ -23,6 +23,7 @@ interface Group {
   id: string;
   name: string;
   code: string;
+  role: string;
   createdAt: string;
 }
 
@@ -114,12 +115,31 @@ export default function GroupsScreen() {
   };
 
   const renderGroup = ({ item }: { item: Group }) => (
-    <View style={styles.groupCard}>
+    <Pressable
+      onPress={() =>
+        router.push({
+          pathname: "/group-detail",
+          params: { id: item.id, name: item.name, role: item.role },
+        })
+      }
+      style={({ pressed }) => [
+        styles.groupCard,
+        pressed && { opacity: 0.75 },
+      ]}
+    >
       <View style={styles.groupIcon}>
         <Feather name="users" size={20} color="#33C3F0" />
       </View>
       <View style={styles.groupInfo}>
-        <Text style={styles.groupName}>{item.name}</Text>
+        <View style={styles.groupNameRow}>
+          <Text style={styles.groupName}>{item.name}</Text>
+          {item.role === "admin" && (
+            <View style={styles.adminBadge}>
+              <Feather name="shield" size={10} color="#FFCC00" />
+              <Text style={styles.adminBadgeText}>Admin</Text>
+            </View>
+          )}
+        </View>
         <View style={styles.codeContainer}>
           <Text style={styles.codeLabel}>Code: </Text>
           <Text style={styles.codeValue}>{item.code}</Text>
@@ -134,7 +154,7 @@ export default function GroupsScreen() {
       >
         <Feather name="share" size={18} color="#33C3F0" />
       </Pressable>
-    </View>
+    </Pressable>
   );
 
   return (
@@ -399,11 +419,31 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 4,
   },
+  groupNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   groupName: {
     fontSize: 16,
     fontWeight: "600" as const,
     color: "#FFFFFF",
     fontFamily: "Inter_600SemiBold",
+  },
+  adminBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: "rgba(255, 204, 0, 0.12)",
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  adminBadgeText: {
+    fontSize: 11,
+    color: "#FFCC00",
+    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600" as const,
   },
   codeContainer: {
     flexDirection: "row",

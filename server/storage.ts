@@ -12,7 +12,7 @@ import {
   routePoints,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, and, inArray, desc, asc } from "drizzle-orm";
+import { eq, and, inArray, desc, asc, sum, count } from "drizzle-orm";
 import pg from "pg";
 
 if (!process.env.DATABASE_URL) {
@@ -21,6 +21,22 @@ if (!process.env.DATABASE_URL) {
 
 const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
 const db = drizzle(pool);
+
+export interface MemberStats {
+  userId: string;
+  displayName: string;
+  role: string;
+  sessionCount: number;
+  totalDistance: number;
+  totalDuration: number;
+}
+
+export interface GroupStats {
+  memberCount: number;
+  sessionCount: number;
+  totalDistance: number;
+  totalDuration: number;
+}
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -34,6 +50,11 @@ export interface IStorage {
   joinGroup(userId: string, groupId: string): Promise<GroupMembership>;
   isGroupMember(userId: string, groupId: string): Promise<boolean>;
   getGroupMembers(groupId: string): Promise<string[]>;
+  getMemberRole(userId: string, groupId: string): Promise<string | undefined>;
+  setMemberRole(userId: string, groupId: string, role: string): Promise<void>;
+  removeMember(userId: string, groupId: string): Promise<void>;
+  getGroupMembersWithStats(groupId: string): Promise<MemberStats[]>;
+  getGroupStats(groupId: string): Promise<GroupStats>;
 
   createSession(userId: string): Promise<WalkingSession>;
   endSession(
@@ -94,7 +115,7 @@ export class DatabaseStorage implements IStorage {
       .returning();
     await db
       .insert(groupMemberships)
-      .values({ userId, groupId: group.id });
+      .values({ userId, groupId: group.id, role: "admin" });
     return group;
   }
 
@@ -127,7 +148,7 @@ export class DatabaseStorage implements IStorage {
   ): Promise<GroupMembership> {
     const [membership] = await db
       .insert(groupMemberships)
-      .values({ userId, groupId })
+      .values({ userId, groupId, role: "participant" })
       .returning();
     return membership;
   }
@@ -151,6 +172,133 @@ export class DatabaseStorage implements IStorage {
       .from(groupMemberships)
       .where(eq(groupMemberships.groupId, groupId));
     return memberships.map((m) => m.userId);
+  }
+
+  async getMemberRole(
+    userId: string,
+    groupId: string,
+  ): Promise<string | undefined> {
+    const [membership] = await db
+      .select()
+      .from(groupMemberships)
+      .where(
+        and(
+          eq(groupMemberships.userId, userId),
+          eq(groupMemberships.groupId, groupId),
+        ),
+      );
+    return membership?.role;
+  }
+
+  async setMemberRole(
+    userId: string,
+    groupId: string,
+    role: string,
+  ): Promise<void> {
+    await db
+      .update(groupMemberships)
+      .set({ role })
+      .where(
+        and(
+          eq(groupMemberships.userId, userId),
+          eq(groupMemberships.groupId, groupId),
+        ),
+      );
+  }
+
+  async removeMember(userId: string, groupId: string): Promise<void> {
+    await db
+      .delete(groupMemberships)
+      .where(
+        and(
+          eq(groupMemberships.userId, userId),
+          eq(groupMemberships.groupId, groupId),
+        ),
+      );
+  }
+
+  async getGroupMembersWithStats(groupId: string): Promise<MemberStats[]> {
+    const memberships = await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.groupId, groupId));
+
+    if (memberships.length === 0) return [];
+
+    const results: MemberStats[] = [];
+    for (const membership of memberships) {
+      const [user] = await db
+        .select()
+        .from(users)
+        .where(eq(users.id, membership.userId));
+      if (!user) continue;
+
+      const sessions = await db
+        .select()
+        .from(walkingSessions)
+        .where(
+          and(
+            eq(walkingSessions.userId, membership.userId),
+            eq(walkingSessions.isActive, false),
+          ),
+        );
+
+      const sessionCount = sessions.length;
+      const totalDistance = sessions.reduce(
+        (acc, s) => acc + (s.totalDistance || 0),
+        0,
+      );
+      const totalDuration = sessions.reduce(
+        (acc, s) => acc + (s.totalDuration || 0),
+        0,
+      );
+
+      results.push({
+        userId: membership.userId,
+        displayName: user.displayName,
+        role: membership.role,
+        sessionCount,
+        totalDistance,
+        totalDuration,
+      });
+    }
+
+    return results;
+  }
+
+  async getGroupStats(groupId: string): Promise<GroupStats> {
+    const memberships = await db
+      .select()
+      .from(groupMemberships)
+      .where(eq(groupMemberships.groupId, groupId));
+
+    const memberCount = memberships.length;
+    if (memberCount === 0) {
+      return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
+    }
+
+    const memberIds = memberships.map((m) => m.userId);
+    const sessions = await db
+      .select()
+      .from(walkingSessions)
+      .where(
+        and(
+          inArray(walkingSessions.userId, memberIds),
+          eq(walkingSessions.isActive, false),
+        ),
+      );
+
+    const sessionCount = sessions.length;
+    const totalDistance = sessions.reduce(
+      (acc, s) => acc + (s.totalDistance || 0),
+      0,
+    );
+    const totalDuration = sessions.reduce(
+      (acc, s) => acc + (s.totalDuration || 0),
+      0,
+    );
+
+    return { memberCount, sessionCount, totalDistance, totalDuration };
   }
 
   async createSession(userId: string): Promise<WalkingSession> {
