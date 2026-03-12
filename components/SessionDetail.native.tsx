@@ -111,11 +111,10 @@ export default function SessionDetailScreen() {
     const duration = formatDuration(session.totalDuration || 0);
 
     const message =
-      `🚶 Just completed a walk with StreetCover!\n\n` +
+      `🚶 I just completed a prayer walk!\n\n` +
       `📅 ${date}\n` +
       `📍 Distance: ${distance}\n` +
-      `⏱ Duration: ${duration}\n\n` +
-      `Tracking every street I walk 🗺️`;
+      `⏱ Duration: ${duration}`;
 
     const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
     const webUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
