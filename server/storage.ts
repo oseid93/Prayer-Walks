@@ -158,9 +158,11 @@ export class DatabaseStorage implements IStorage {
     userId: string,
     groupId: string,
   ): Promise<GroupMembership> {
+    const group = await this.getGroupById(groupId);
+    const role = group?.createdById === userId ? "admin" : "participant";
     const [membership] = await db
       .insert(groupMemberships)
-      .values({ userId, groupId, role: "participant" })
+      .values({ userId, groupId, role })
       .returning();
     return membership;
   }
