@@ -5,6 +5,7 @@ import * as fs from "fs";
 import * as path from "path";
 
 const app = express();
+app.set("etag", false);
 const log = console.log;
 
 declare module "http" {

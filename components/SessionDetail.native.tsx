@@ -80,7 +80,7 @@ export default function SessionDetailScreen() {
   const insets = useSafeAreaInsets();
 
   const { data: points, isLoading: pointsLoading } = useQuery<RoutePoint[]>({
-    queryKey: ["/api/sessions", id, "points"],
+    queryKey: [`/api/sessions/${id}/points`],
     enabled: !!id,
   });
 
@@ -143,10 +143,17 @@ export default function SessionDetailScreen() {
           <View style={styles.centerContainer}>
             <ActivityIndicator size="large" color="#33C3F0" />
           </View>
-        ) : !points || points.length < 2 ? (
+        ) : !points || points.length === 0 ? (
           <View style={styles.centerContainer}>
             <Feather name="map" size={40} color="#6B7280" />
-            <Text style={styles.emptyText}>No route data for this walk</Text>
+            <Text style={styles.emptyText}>No GPS points recorded</Text>
+            <Text style={styles.emptySubText}>Try a longer walk to see your route here</Text>
+          </View>
+        ) : points.length < 2 ? (
+          <View style={styles.centerContainer}>
+            <Feather name="map-pin" size={40} color="#6B7280" />
+            <Text style={styles.emptyText}>Route too short to display</Text>
+            <Text style={styles.emptySubText}>Only {points.length} point recorded — walk a bit further</Text>
           </View>
         ) : (
           <RouteMap points={points} />
@@ -223,5 +230,14 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: "#9CA3AF",
     fontFamily: "Inter_400Regular",
+    textAlign: "center",
+  },
+  emptySubText: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+    marginTop: 4,
+    paddingHorizontal: 24,
   },
 });
