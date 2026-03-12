@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import {
   StyleSheet,
   View,
@@ -81,6 +81,24 @@ export default function GroupDetailScreen() {
     queryKey: [`/api/groups/${id}/members`],
     enabled: isAdmin,
   });
+
+  type SortKey = "walks" | "distance" | "time";
+  const [sortBy, setSortBy] = useState<SortKey>("walks");
+
+  const sortedMembers = useMemo(() => {
+    if (!members) return [];
+    return [...members].sort((a, b) => {
+      if (sortBy === "walks") return b.sessionCount - a.sessionCount;
+      if (sortBy === "distance") return b.totalDistance - a.totalDistance;
+      return b.totalDuration - a.totalDuration;
+    });
+  }, [members, sortBy]);
+
+  const SORT_OPTIONS: { key: SortKey; label: string; icon: string }[] = [
+    { key: "walks", label: "Walks", icon: "activity" },
+    { key: "distance", label: "Distance", icon: "map-pin" },
+    { key: "time", label: "Time", icon: "clock" },
+  ];
 
   const { data: stats, isLoading: statsLoading } = useQuery<GroupStats>({
     queryKey: [`/api/groups/${id}/stats`],
@@ -318,13 +336,43 @@ export default function GroupDetailScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          <Text style={styles.sectionTitle}>Members</Text>
+          <View style={styles.sectionRow}>
+            <Text style={styles.sectionTitle}>Members</Text>
+            {!membersLoading && members && members.length > 0 && (
+              <View style={styles.sortPills}>
+                {SORT_OPTIONS.map((opt) => (
+                  <Pressable
+                    key={opt.key}
+                    onPress={() => setSortBy(opt.key)}
+                    style={[
+                      styles.sortPill,
+                      sortBy === opt.key && styles.sortPillActive,
+                    ]}
+                  >
+                    <Feather
+                      name={opt.icon as any}
+                      size={11}
+                      color={sortBy === opt.key ? "#0F0F23" : "#9CA3AF"}
+                    />
+                    <Text
+                      style={[
+                        styles.sortPillText,
+                        sortBy === opt.key && styles.sortPillTextActive,
+                      ]}
+                    >
+                      {opt.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+          </View>
           {membersLoading ? (
             <ActivityIndicator color="#33C3F0" style={{ marginVertical: 20 }} />
           ) : !members || members.length === 0 ? (
             <Text style={styles.emptyText}>No members yet</Text>
           ) : (
-            members.map((item) => (
+            sortedMembers.map((item) => (
               <React.Fragment key={item.userId}>
                 {renderMember({ item })}
                 <View style={{ height: 8 }} />
@@ -737,6 +785,40 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 16,
     paddingBottom: 100,
+  },
+  sectionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 0,
+  },
+  sortPills: {
+    flexDirection: "row",
+    gap: 6,
+  },
+  sortPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  sortPillActive: {
+    backgroundColor: "#33C3F0",
+    borderColor: "#33C3F0",
+  },
+  sortPillText: {
+    fontSize: 11,
+    color: "#9CA3AF",
+    fontFamily: "Inter_600SemiBold",
+    fontWeight: "600" as const,
+  },
+  sortPillTextActive: {
+    color: "#0F0F23",
   },
   participantContent: {
     flexGrow: 1,
