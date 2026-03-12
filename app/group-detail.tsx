@@ -55,10 +55,9 @@ function formatDistance(meters: number): string {
 }
 
 export default function GroupDetailScreen() {
-  const { id, name, role: initialRole } = useLocalSearchParams<{
+  const { id, name } = useLocalSearchParams<{
     id: string;
     name: string;
-    role: string;
   }>();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -71,7 +70,11 @@ export default function GroupDetailScreen() {
   } | null>(null);
 
   const { user } = useAuth();
-  const isAdmin = initialRole === "admin";
+
+  const { data: myRoleData } = useQuery<{ role: string }>({
+    queryKey: [`/api/groups/${id}/my-role`],
+  });
+  const isAdmin = myRoleData?.role === "admin";
 
   const { data: members, isLoading: membersLoading } = useQuery<MemberStats[]>({
     queryKey: [`/api/groups/${id}/members`],
