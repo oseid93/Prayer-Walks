@@ -9,6 +9,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import MapView, { Polyline, Camera } from "react-native-maps";
+import * as Location from "expo-location";
 import { useTracking } from "@/lib/tracking-context";
 import { useAuth } from "@/lib/auth-context";
 import { useQuery } from "@tanstack/react-query";
@@ -45,6 +46,44 @@ export default function NativeMapScreen() {
   const [viewMode, setViewMode] = useState<"personal" | "group">("personal");
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== "granted" || cancelled) return;
+      const last = await Location.getLastKnownPositionAsync();
+      if (last && !cancelled) {
+        mapRef.current?.animateToRegion(
+          {
+            latitude: last.coords.latitude,
+            longitude: last.coords.longitude,
+            latitudeDelta: 0.008,
+            longitudeDelta: 0.008,
+          },
+          300,
+        );
+        setInitialLocationSet(true);
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Low,
+      });
+      if (!cancelled) {
+        mapRef.current?.animateToRegion(
+          {
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            latitudeDelta: 0.008,
+            longitudeDelta: 0.008,
+          },
+          300,
+        );
+        setInitialLocationSet(true);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const { data: coveragePoints } = useQuery<RoutePointData[]>({
     queryKey: ["/api/coverage"],
