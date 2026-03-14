@@ -579,109 +579,80 @@ export default function NativeMapScreen() {
             )}
           </View>
         ) : (
-          <>
-            {state === "idle" && (
-              <View style={styles.controlsRow}>
-                <Pressable
-                  onPress={handleCenterOnLocation}
-                  style={({ pressed }) => [
-                    styles.secondaryButton,
-                    { opacity: pressed ? 0.8 : 1 },
-                  ]}
-                  testID="center-location"
-                >
-                  <Feather name="crosshair" size={22} color="#33C3F0" />
-                </Pressable>
-                {isAdminAny && (
-                  <Pressable
-                    onPress={handleEnterDrawMode}
-                    style={({ pressed }) => [
-                      styles.secondaryButton,
-                      { opacity: pressed ? 0.8 : 1 },
-                    ]}
-                    testID="draw-zone"
-                  >
-                    <Feather name="edit-2" size={20} color="#FF9500" />
-                  </Pressable>
-                )}
-                <Pressable
-                  onPress={startTracking}
-                  style={({ pressed }) => [
-                    styles.fab,
-                    { backgroundColor: "#4CD964", opacity: pressed ? 0.8 : 1 },
-                  ]}
-                  testID="start-tracking"
-                >
-                  <Feather name="play" size={28} color="#fff" />
-                </Pressable>
-              </View>
+          <View style={styles.controlsRow}>
+            {/* Left: always crosshair */}
+            <Pressable
+              onPress={handleCenterOnLocation}
+              style={({ pressed }) => [
+                styles.secondaryButton,
+                { opacity: pressed ? 0.8 : 1 },
+              ]}
+              testID="center-location"
+            >
+              <Feather name="crosshair" size={22} color="#33C3F0" />
+            </Pressable>
+
+            {/* Middle: draw (idle+admin) | pause (tracking) | resume (paused) */}
+            {state === "idle" && isAdminAny ? (
+              <Pressable
+                onPress={handleEnterDrawMode}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+                testID="draw-zone"
+              >
+                <Feather name="edit-2" size={20} color="#FF9500" />
+              </Pressable>
+            ) : state === "tracking" ? (
+              <Pressable
+                onPress={pauseTracking}
+                style={({ pressed }) => [
+                  styles.controlButton,
+                  { backgroundColor: "#FF9500", opacity: pressed ? 0.8 : 1 },
+                ]}
+                testID="pause-tracking"
+              >
+                <Feather name="pause" size={24} color="#fff" />
+              </Pressable>
+            ) : state === "paused" ? (
+              <Pressable
+                onPress={resumeTracking}
+                style={({ pressed }) => [
+                  styles.controlButton,
+                  { backgroundColor: "#4CD964", opacity: pressed ? 0.8 : 1 },
+                ]}
+                testID="resume-tracking"
+              >
+                <Feather name="play" size={24} color="#fff" />
+              </Pressable>
+            ) : null}
+
+            {/* Right: always FAB — green play when idle, red stop when active */}
+            {state === "idle" ? (
+              <Pressable
+                onPress={startTracking}
+                style={({ pressed }) => [
+                  styles.fab,
+                  { backgroundColor: "#4CD964", opacity: pressed ? 0.8 : 1 },
+                ]}
+                testID="start-tracking"
+              >
+                <Feather name="play" size={28} color="#fff" />
+              </Pressable>
+            ) : (
+              <Pressable
+                onPress={stopTracking}
+                style={({ pressed }) => [
+                  styles.fab,
+                  { backgroundColor: "#FF3B30", opacity: pressed ? 0.8 : 1 },
+                ]}
+                testID="stop-tracking"
+              >
+                <Feather name="square" size={26} color="#fff" />
+              </Pressable>
             )}
-            {state === "tracking" && (
-              <View style={styles.controlsRow}>
-                <Pressable
-                  onPress={handleCenterOnLocation}
-                  style={({ pressed }) => [
-                    styles.secondaryButton,
-                    { opacity: pressed ? 0.8 : 1 },
-                  ]}
-                >
-                  <Feather name="crosshair" size={22} color="#33C3F0" />
-                </Pressable>
-                <Pressable
-                  onPress={pauseTracking}
-                  style={({ pressed }) => [
-                    styles.controlButton,
-                    { backgroundColor: "#FF9500", opacity: pressed ? 0.8 : 1 },
-                  ]}
-                  testID="pause-tracking"
-                >
-                  <Feather name="pause" size={24} color="#fff" />
-                </Pressable>
-                <Pressable
-                  onPress={stopTracking}
-                  style={({ pressed }) => [
-                    styles.controlButton,
-                    { backgroundColor: "#FF3B30", opacity: pressed ? 0.8 : 1 },
-                  ]}
-                  testID="stop-tracking"
-                >
-                  <Feather name="square" size={24} color="#fff" />
-                </Pressable>
-              </View>
-            )}
-            {state === "paused" && (
-              <View style={styles.controlsRow}>
-                <Pressable
-                  onPress={handleCenterOnLocation}
-                  style={({ pressed }) => [
-                    styles.secondaryButton,
-                    { opacity: pressed ? 0.8 : 1 },
-                  ]}
-                >
-                  <Feather name="crosshair" size={22} color="#33C3F0" />
-                </Pressable>
-                <Pressable
-                  onPress={resumeTracking}
-                  style={({ pressed }) => [
-                    styles.controlButton,
-                    { backgroundColor: "#4CD964", opacity: pressed ? 0.8 : 1 },
-                  ]}
-                  testID="resume-tracking"
-                >
-                  <Feather name="play" size={24} color="#fff" />
-                </Pressable>
-                <Pressable
-                  onPress={stopTracking}
-                  style={({ pressed }) => [
-                    styles.controlButton,
-                    { backgroundColor: "#FF3B30", opacity: pressed ? 0.8 : 1 },
-                  ]}
-                >
-                  <Feather name="square" size={24} color="#fff" />
-                </Pressable>
-              </View>
-            )}
-          </>
+          </View>
         )}
       </View>
 
