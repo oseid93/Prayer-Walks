@@ -628,7 +628,7 @@ export default function NativeMapScreen() {
               </Pressable>
             ) : null}
 
-            {/* Right: always FAB — green play when idle, red stop when active */}
+            {/* Right: green play FAB when idle, red stop (same size as pause) when active */}
             {state === "idle" ? (
               <Pressable
                 onPress={startTracking}
@@ -644,12 +644,12 @@ export default function NativeMapScreen() {
               <Pressable
                 onPress={stopTracking}
                 style={({ pressed }) => [
-                  styles.fab,
+                  styles.controlButton,
                   { backgroundColor: "#FF3B30", opacity: pressed ? 0.8 : 1 },
                 ]}
                 testID="stop-tracking"
               >
-                <Feather name="square" size={26} color="#fff" />
+                <Feather name="square" size={24} color="#fff" />
               </Pressable>
             )}
           </View>

@@ -322,13 +322,20 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const startTracking = useCallback(async () => {
-    const permitted = await requestPermission();
-    if (!permitted) {
-      Alert.alert(
-        "Permission Required",
-        "Location permission is needed to track your walks.",
-      );
-      return;
+    // Check permission without blocking on a GPS fix — just verify the grant status
+    if (Platform.OS !== "web") {
+      const { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== "granted") {
+        const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
+        if (newStatus !== "granted") {
+          Alert.alert(
+            "Permission Required",
+            "Location permission is needed to track your walks.",
+          );
+          return;
+        }
+        setHasPermission(true);
+      }
     }
 
     try {
@@ -366,7 +373,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       console.error("Failed to start tracking:", err);
       Alert.alert("Error", "Failed to start tracking session.");
     }
-  }, [requestPermission, syncPoints, startLocationWatch]);
+  }, [syncPoints, startLocationWatch]);
 
   const pauseTracking = useCallback(() => {
     isTrackingActiveRef.current = false;
