@@ -17,6 +17,10 @@ import { AuthProvider, useAuth } from "@/lib/auth-context";
 import { TrackingProvider } from "@/lib/tracking-context";
 import { useRouter, useSegments } from "expo-router";
 import OnboardingModal from "@/components/OnboardingModal";
+import TutorialModal from "@/components/TutorialModal";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+
+const TUTORIAL_SEEN_KEY = "@streetcover_tutorial_seen";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -24,6 +28,7 @@ function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, isLoading, isNewUser } = useAuth();
   const segments = useSegments();
   const router = useRouter();
+  const [showTutorial, setShowTutorial] = useState(false);
   const [showOnboarding, setShowOnboarding] = useState(false);
 
   useEffect(() => {
@@ -36,16 +41,42 @@ function AuthGate({ children }: { children: React.ReactNode }) {
     }
   }, [user, isLoading, segments]);
 
+  // Check if tutorial has been seen once user is logged in
   useEffect(() => {
-    if (isNewUser && user) {
-      const timer = setTimeout(() => setShowOnboarding(true), 500);
-      return () => clearTimeout(timer);
+    if (!user || isLoading) return;
+    (async () => {
+      try {
+        const seen = await AsyncStorage.getItem(TUTORIAL_SEEN_KEY);
+        if (!seen) {
+          const timer = setTimeout(() => setShowTutorial(true), 600);
+          return () => clearTimeout(timer);
+        } else if (isNewUser) {
+          // Tutorial already seen but new user — show group join modal
+          const timer = setTimeout(() => setShowOnboarding(true), 600);
+          return () => clearTimeout(timer);
+        }
+      } catch {}
+    })();
+  }, [user, isLoading]);
+
+  const handleTutorialDismiss = async () => {
+    setShowTutorial(false);
+    try {
+      await AsyncStorage.setItem(TUTORIAL_SEEN_KEY, "1");
+    } catch {}
+    // After tutorial, show group join modal if this is a new user
+    if (isNewUser) {
+      setTimeout(() => setShowOnboarding(true), 300);
     }
-  }, [isNewUser, user]);
+  };
 
   return (
     <>
       {children}
+      <TutorialModal
+        visible={showTutorial}
+        onDismiss={handleTutorialDismiss}
+      />
       <OnboardingModal
         visible={showOnboarding}
         onDismiss={() => setShowOnboarding(false)}
