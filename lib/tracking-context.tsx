@@ -13,6 +13,12 @@ interface TrackingPoint {
 
 type TrackingState = "idle" | "tracking" | "paused";
 
+export interface CompletedSession {
+  distance: number;
+  duration: number;
+  startedAt: Date;
+}
+
 interface TrackingContextType {
   state: TrackingState;
   elapsedTime: number;
@@ -28,6 +34,8 @@ interface TrackingContextType {
   hasPermission: boolean;
   requestPermission: () => Promise<boolean>;
   centerOnLocation: () => Promise<void>;
+  completedSession: CompletedSession | null;
+  clearCompletedSession: () => void;
 }
 
 const TrackingContext = createContext<TrackingContextType | undefined>(undefined);
@@ -80,6 +88,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const [heading, setHeading] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [hasPermission, setHasPermission] = useState(false);
+  const [completedSession, setCompletedSession] = useState<CompletedSession | null>(null);
 
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const locationSubRef = useRef<Location.LocationSubscription | null>(null);
@@ -88,6 +97,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
   const pausedTimeRef = useRef<number>(0);
+  const sessionStartedAtRef = useRef<Date>(new Date());
   const prevLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const isTrackingActiveRef = useRef(false);
 
@@ -352,6 +362,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
 
       startTimeRef.current = Date.now();
       pausedTimeRef.current = 0;
+      sessionStartedAtRef.current = new Date();
 
       timerRef.current = setInterval(() => {
         const now = Date.now();
@@ -400,8 +411,20 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     setState("tracking");
   }, [elapsedTime]);
 
+  const clearCompletedSession = useCallback(() => {
+    setCompletedSession(null);
+  }, []);
+
   const stopTracking = useCallback(async () => {
     isTrackingActiveRef.current = false;
+
+    // Capture summary before clearing state
+    const summary: CompletedSession = {
+      distance,
+      duration: elapsedTime,
+      startedAt: sessionStartedAtRef.current,
+    };
+
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
@@ -444,6 +467,9 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     setHeading(null);
     prevLocationRef.current = null;
     pointsBufferRef.current = [];
+
+    // Show summary after state is fully reset
+    setCompletedSession(summary);
   }, [sessionId, distance, elapsedTime, syncPoints, stopLocationWatch]);
 
   return (
@@ -463,6 +489,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         hasPermission,
         requestPermission,
         centerOnLocation,
+        completedSession,
+        clearCompletedSession,
       }}
     >
       {children}

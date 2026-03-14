@@ -10,6 +10,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -78,6 +79,8 @@ export default function NativeMapScreen() {
     resumeTracking,
     stopTracking,
     centerOnLocation,
+    completedSession,
+    clearCompletedSession,
   } = useTracking();
   const { user } = useAuth();
   const mapRef = useRef<MapView>(null);
@@ -296,6 +299,35 @@ export default function NativeMapScreen() {
   const handleUndoVertex = useCallback(() => {
     setDrawVertices((prev) => prev.slice(0, -1));
   }, []);
+
+  const shareCompletedSessionOnWhatsApp = useCallback(async () => {
+    if (!completedSession) return;
+    const dateStr = completedSession.startedAt.toLocaleDateString(undefined, {
+      weekday: "short",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const message =
+      `🚶 I just completed a prayer walk!\n\n` +
+      `📅 ${dateStr}\n` +
+      `📍 Distance: ${formatDistance(completedSession.distance)}\n` +
+      `⏱ Duration: ${formatDuration(completedSession.duration)}`;
+    const whatsappUrl = `whatsapp://send?text=${encodeURIComponent(message)}`;
+    const webUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    const canOpen = await Linking.canOpenURL(whatsappUrl);
+    if (canOpen) {
+      await Linking.openURL(whatsappUrl);
+    } else {
+      const canOpenWeb = await Linking.canOpenURL(webUrl);
+      if (canOpenWeb) {
+        await Linking.openURL(webUrl);
+      } else {
+        Alert.alert("WhatsApp not found", "Install WhatsApp to share your walk.", [{ text: "OK" }]);
+      }
+    }
+  }, [completedSession]);
 
   const saveMutation = useMutation({
     mutationFn: async ({
@@ -754,6 +786,77 @@ export default function NativeMapScreen() {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Session Summary Modal */}
+      <Modal
+        visible={!!completedSession}
+        transparent
+        animationType="slide"
+        onRequestClose={clearCompletedSession}
+      >
+        <View style={styles.summaryOverlay}>
+          <View style={[styles.summarySheet, { paddingBottom: insets.bottom + 24 }]}>
+            {/* Header */}
+            <View style={styles.summaryHeader}>
+              <View style={styles.summaryCheckCircle}>
+                <Feather name="check" size={28} color="#fff" />
+              </View>
+              <Text style={styles.summaryTitle}>Prayer Walk Complete!</Text>
+              <Text style={styles.summarySubtitle}>
+                {completedSession?.startedAt.toLocaleDateString(undefined, {
+                  weekday: "long",
+                  month: "short",
+                  day: "numeric",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </Text>
+            </View>
+
+            {/* Stats */}
+            <View style={styles.summaryStatsRow}>
+              <View style={styles.summaryStatCard}>
+                <Feather name="navigation" size={20} color="#4CD964" />
+                <Text style={styles.summaryStatValue}>
+                  {formatDistance(completedSession?.distance ?? 0)}
+                </Text>
+                <Text style={styles.summaryStatLabel}>Distance</Text>
+              </View>
+              <View style={styles.summaryStatDivider} />
+              <View style={styles.summaryStatCard}>
+                <Feather name="clock" size={20} color="#33C3F0" />
+                <Text style={styles.summaryStatValue}>
+                  {formatDuration(completedSession?.duration ?? 0)}
+                </Text>
+                <Text style={styles.summaryStatLabel}>Duration</Text>
+              </View>
+            </View>
+
+            {/* Share button */}
+            <Pressable
+              onPress={shareCompletedSessionOnWhatsApp}
+              style={({ pressed }) => [
+                styles.summaryShareBtn,
+                { opacity: pressed ? 0.85 : 1 },
+              ]}
+            >
+              <Feather name="share-2" size={22} color="#fff" />
+              <Text style={styles.summaryShareText}>Share on WhatsApp</Text>
+            </Pressable>
+
+            {/* Dismiss */}
+            <Pressable
+              onPress={clearCompletedSession}
+              style={({ pressed }) => [
+                styles.summaryDismissBtn,
+                { opacity: pressed ? 0.7 : 1 },
+              ]}
+            >
+              <Text style={styles.summaryDismissText}>Close</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -1041,5 +1144,106 @@ const styles = StyleSheet.create({
     fontWeight: "700" as const,
     color: "#FFFFFF",
     fontFamily: "Inter_700Bold",
+  },
+  summaryOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    justifyContent: "flex-end",
+  },
+  summarySheet: {
+    backgroundColor: "#1A1A2E",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 32,
+    paddingHorizontal: 24,
+    gap: 20,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    elevation: 16,
+  },
+  summaryHeader: {
+    alignItems: "center",
+    gap: 10,
+  },
+  summaryCheckCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#4CD964",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#4CD964",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  summaryTitle: {
+    fontSize: 22,
+    fontWeight: "700" as const,
+    color: "#FFFFFF",
+    fontFamily: "Inter_700Bold",
+    textAlign: "center",
+  },
+  summarySubtitle: {
+    fontSize: 13,
+    color: "#9CA3AF",
+    fontFamily: "Inter_400Regular",
+    textAlign: "center",
+  },
+  summaryStatsRow: {
+    flexDirection: "row",
+    backgroundColor: "#0F0F23",
+    borderRadius: 16,
+    overflow: "hidden",
+  },
+  summaryStatCard: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 20,
+    gap: 6,
+  },
+  summaryStatDivider: {
+    width: 1,
+    backgroundColor: "#2D2D44",
+  },
+  summaryStatValue: {
+    fontSize: 22,
+    fontWeight: "700" as const,
+    color: "#FFFFFF",
+    fontFamily: "Inter_700Bold",
+  },
+  summaryStatLabel: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontFamily: "Inter_400Regular",
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  summaryShareBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    backgroundColor: "#25D366",
+    borderRadius: 16,
+    paddingVertical: 18,
+  },
+  summaryShareText: {
+    fontSize: 17,
+    fontWeight: "700" as const,
+    color: "#fff",
+    fontFamily: "Inter_700Bold",
+  },
+  summaryDismissBtn: {
+    alignItems: "center",
+    paddingVertical: 12,
+  },
+  summaryDismissText: {
+    fontSize: 15,
+    color: "#6B7280",
+    fontFamily: "Inter_400Regular",
   },
 });
