@@ -19,6 +19,20 @@ export const users = pgTable("users", {
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
   displayName: text("display_name").notNull(),
+  email: text("email"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: varchar("id")
+    .primaryKey()
+    .default(sql`gen_random_uuid()`),
+  userId: varchar("user_id")
+    .notNull()
+    .references(() => users.id),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -116,6 +130,9 @@ export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
   displayName: true,
+  email: true,
+}).extend({
+  email: z.string().email().optional(),
 });
 
 export const insertGroupSchema = createInsertSchema(groups).pick({
@@ -142,3 +159,4 @@ export type GroupMembership = typeof groupMemberships.$inferSelect;
 export type WalkingSession = typeof walkingSessions.$inferSelect;
 export type RoutePoint = typeof routePoints.$inferSelect;
 export type PriorityArea = typeof priorityAreas.$inferSelect;
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;

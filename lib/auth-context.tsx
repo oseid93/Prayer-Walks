@@ -14,7 +14,7 @@ interface AuthContextType {
   isNewUser: boolean;
   setIsNewUser: (val: boolean) => void;
   login: (username: string, password: string) => Promise<void>;
-  register: (username: string, password: string, displayName: string) => Promise<void>;
+  register: (username: string, password: string, displayName: string, email?: string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -43,8 +43,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     queryClient.invalidateQueries({ queryKey: ["/api/auth/me"] });
   }, []);
 
-  const register = useCallback(async (username: string, password: string, displayName: string) => {
-    const res = await apiRequest("POST", "/api/auth/register", { username, password, displayName });
+  const register = useCallback(async (username: string, password: string, displayName: string, email?: string) => {
+    const res = await apiRequest("POST", "/api/auth/register", { username, password, displayName, ...(email ? { email } : {}) });
     const userData = await res.json();
     setUser(userData);
     setIsNewUser(true);

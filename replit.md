@@ -27,16 +27,30 @@ A mobile street coverage tracking app built with Expo (React Native) and Express
 - `server/storage.ts` - Database storage layer
 - `shared/schema.ts` - Drizzle schema definitions
 
+### Key Components
+- `components/TutorialModal.tsx` - 7-slide onboarding carousel (AsyncStorage persistence)
+- `components/OnboardingModal.tsx` - Post-registration group join modal
+- `server/email.ts` - Nodemailer email utility with graceful SMTP fallback
+
 ### Database Tables
-- `users` - User accounts
+- `users` - User accounts (includes optional `email` column)
+- `password_reset_tokens` - Password reset codes (UUID id, 1hr expiry)
 - `groups` - Walking groups with unique join codes
 - `group_memberships` - User-group relationships
 - `walking_sessions` - Walking session records with distance/duration
 - `route_points` - GPS coordinates recorded during sessions
+- `priority_areas` - Admin-drawn priority zones per group
+
+### Auth / Password Recovery
+- `POST /api/auth/register` - Accepts optional `email` field
+- `POST /api/auth/forgot-password` - Sends 6-digit code to email (SMTP or console fallback)
+- `POST /api/auth/reset-password` - Validates code, updates hashed password
+- SMTP env vars: `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM`
+- Auth screen modes: login → register → forgot → reset (all in `app/auth.tsx`)
 
 ### Dependencies
 - react-native-maps@1.18.0
 - expo-location
-- express-session, connect-pg-simple, bcrypt
+- express-session, connect-pg-simple, bcrypt, nodemailer
 - drizzle-orm, pg
 - @tanstack/react-query

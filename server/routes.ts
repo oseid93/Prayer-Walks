@@ -5,6 +5,7 @@ import connectPg from "connect-pg-simple";
 import bcrypt from "bcrypt";
 import { storage } from "./storage";
 import { insertUserSchema, insertRoutePointsSchema } from "@shared/schema";
+import { sendPasswordResetEmail } from "./email";
 
 const PgStore = connectPg(session);
 
@@ -114,6 +115,56 @@ export async function registerRoutes(app: Express): Promise<Server> {
     req.session.destroy(() => {
       res.json({ message: "Logged out" });
     });
+  });
+
+  app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+    try {
+      const { email } = req.body;
+      if (!email) {
+        return res.status(400).json({ message: "Email required" });
+      }
+      const user = await storage.getUserByEmail(email.toLowerCase().trim());
+      // Always respond the same way to prevent email enumeration
+      const safe = { message: "If that email is registered, a reset code has been sent." };
+      if (!user) return res.json(safe);
+
+      // Generate 6-digit code
+      const code = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
+      await storage.createResetToken(user.id, code, expiresAt);
+      await sendPasswordResetEmail(email, code);
+      res.json(safe);
+    } catch (error) {
+      console.error("Forgot password error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
+    try {
+      const { email, code, newPassword } = req.body;
+      if (!email || !code || !newPassword) {
+        return res.status(400).json({ message: "Email, code, and new password are required" });
+      }
+      if (newPassword.length < 6) {
+        return res.status(400).json({ message: "Password must be at least 6 characters" });
+      }
+      const user = await storage.getUserByEmail(email.toLowerCase().trim());
+      if (!user) {
+        return res.status(400).json({ message: "Invalid or expired code" });
+      }
+      const resetToken = await storage.getValidResetToken(code);
+      if (!resetToken || resetToken.userId !== user.id || resetToken.usedAt) {
+        return res.status(400).json({ message: "Invalid or expired code" });
+      }
+      const hashed = await bcrypt.hash(newPassword, 10);
+      await storage.updateUserPassword(user.id, hashed);
+      await storage.markResetTokenUsed(resetToken.id);
+      res.json({ message: "Password updated successfully" });
+    } catch (error) {
+      console.error("Reset password error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
   });
 
   app.post("/api/groups", requireAuth, async (req: Request, res: Response) => {

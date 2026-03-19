@@ -6,15 +6,17 @@ import {
   type WalkingSession,
   type RoutePoint,
   type PriorityArea,
+  type PasswordResetToken,
   users,
   groups,
   groupMemberships,
   walkingSessions,
   routePoints,
   priorityAreas,
+  passwordResetTokens,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, and, inArray, desc, asc, sum, count } from "drizzle-orm";
+import { eq, and, inArray, desc, asc, sum, count, gt } from "drizzle-orm";
 import pg from "pg";
 
 if (!process.env.DATABASE_URL) {
@@ -43,7 +45,12 @@ export interface GroupStats {
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  updateUserPassword(userId: string, hashedPassword: string): Promise<void>;
+  createResetToken(userId: string, token: string, expiresAt: Date): Promise<PasswordResetToken>;
+  getValidResetToken(token: string): Promise<PasswordResetToken | undefined>;
+  markResetTokenUsed(tokenId: string): Promise<void>;
 
   createGroup(name: string, userId: string): Promise<Group>;
   getGroupByCode(code: string): Promise<Group | undefined>;
@@ -117,6 +124,43 @@ export class DatabaseStorage implements IStorage {
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
+    return user;
+  }
+
+  async updateUserPassword(userId: string, hashedPassword: string): Promise<void> {
+    await db.update(users).set({ password: hashedPassword }).where(eq(users.id, userId));
+  }
+
+  async createResetToken(userId: string, token: string, expiresAt: Date): Promise<PasswordResetToken> {
+    const [resetToken] = await db
+      .insert(passwordResetTokens)
+      .values({ userId, token, expiresAt })
+      .returning();
+    return resetToken;
+  }
+
+  async getValidResetToken(token: string): Promise<PasswordResetToken | undefined> {
+    const [resetToken] = await db
+      .select()
+      .from(passwordResetTokens)
+      .where(
+        and(
+          eq(passwordResetTokens.token, token),
+          gt(passwordResetTokens.expiresAt, new Date()),
+        ),
+      );
+    return resetToken;
+  }
+
+  async markResetTokenUsed(tokenId: string): Promise<void> {
+    await db
+      .update(passwordResetTokens)
+      .set({ usedAt: new Date() })
+      .where(eq(passwordResetTokens.id, tokenId));
   }
 
   async createGroup(name: string, userId: string): Promise<Group> {
