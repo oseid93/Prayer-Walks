@@ -204,38 +204,40 @@ export default function GroupsScreen() {
         </Pressable>
       </View>
 
-      {isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#33C3F0" />
-        </View>
-      ) : !groups || groups.length === 0 ? (
-        <View style={styles.emptyContainer}>
-          <Feather name="users" size={40} color="#6B7280" />
-          <Text style={styles.emptyText}>No groups yet</Text>
-          <Text style={styles.emptySubtext}>
-            Create a group or join one with a code to share coverage with
-            friends
-          </Text>
-        </View>
-      ) : (
-        <FlatList
-          data={groups}
-          renderItem={renderGroup}
-          keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.listContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl
-              refreshing={isRefetching}
-              onRefresh={() =>
-                queryClient.invalidateQueries({ queryKey: ["/api/groups"] })
-              }
-              tintColor="#33C3F0"
-            />
-          }
-          scrollEnabled={groups.length > 0}
-        />
-      )}
+      <View style={styles.listArea}>
+        {isLoading ? (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#33C3F0" />
+          </View>
+        ) : !groups || groups.length === 0 ? (
+          <View style={styles.emptyContainer}>
+            <Feather name="users" size={40} color="#6B7280" />
+            <Text style={styles.emptyText}>No groups yet</Text>
+            <Text style={styles.emptySubtext}>
+              Create a group or join one with a code to share coverage with
+              friends
+            </Text>
+          </View>
+        ) : (
+          <FlatList
+            data={groups}
+            renderItem={renderGroup}
+            keyExtractor={(item) => item.id}
+            contentContainerStyle={styles.listContent}
+            showsVerticalScrollIndicator={false}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefetching}
+                onRefresh={() =>
+                  queryClient.invalidateQueries({ queryKey: ["/api/groups"] })
+                }
+                tintColor="#33C3F0"
+              />
+            }
+            scrollEnabled={groups.length > 0}
+          />
+        )}
+      </View>
 
       {/* Account / Sign Out */}
       <View style={[styles.accountSection, { paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 0) + 16 }]}>
@@ -492,6 +494,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  listArea: {
+    flex: 1,
+  },
   loadingContainer: {
     flex: 1,
     alignItems: "center",
@@ -502,7 +507,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 12,
-    paddingBottom: 100,
+    paddingBottom: 40,
   },
   emptyText: {
     fontSize: 18,
