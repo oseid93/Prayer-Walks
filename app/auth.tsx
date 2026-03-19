@@ -44,8 +44,20 @@ export default function AuthScreen() {
         await register(username.trim(), password.trim(), displayName.trim());
       }
     } catch (err: any) {
-      const msg = err?.message || "Something went wrong";
-      setError(msg);
+      const raw: string = err?.message ?? "";
+      if (isLogin) {
+        if (raw.includes("401") || raw.toLowerCase().includes("invalid credentials")) {
+          setError("Incorrect password, or no account found with that username. Please try again or sign up below.");
+        } else {
+          setError("Sign in failed. Please check your details and try again.");
+        }
+      } else {
+        if (raw.includes("409") || raw.toLowerCase().includes("already exists") || raw.toLowerCase().includes("already taken")) {
+          setError("That username is already taken. Please choose a different one.");
+        } else {
+          setError("Could not create account. Please try again.");
+        }
+      }
     } finally {
       setLoading(false);
     }
