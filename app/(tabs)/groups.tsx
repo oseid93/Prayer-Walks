@@ -240,7 +240,7 @@ export default function GroupsScreen() {
       </View>
 
       {/* Account / Sign Out */}
-      <View style={[styles.accountSection, { paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 0) + 16 }]}>
+      <View style={[styles.accountSection, { paddingBottom: insets.bottom + (Platform.OS === "web" ? 84 : 49) + 16 }]}>
         <View style={styles.accountDivider} />
         <View style={styles.accountRow}>
           <View style={styles.accountAvatar}>
