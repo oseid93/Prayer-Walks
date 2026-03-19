@@ -349,7 +349,20 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     }
 
     try {
-      const res = await apiRequest("POST", "/api/sessions");
+      // Retry session creation up to 2 times on network failure
+      let res: Response | null = null;
+      let lastErr: unknown;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          res = await apiRequest("POST", "/api/sessions");
+          break;
+        } catch (err) {
+          lastErr = err;
+          if (attempt < 1) await new Promise((r) => setTimeout(r, 1500));
+        }
+      }
+      if (!res) throw lastErr;
+
       const session = await res.json();
       const sid = session.id;
       setSessionId(sid);
@@ -382,7 +395,17 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       setState("tracking");
     } catch (err) {
       console.error("Failed to start tracking:", err);
-      Alert.alert("Error", "Failed to start tracking session.");
+      const msg = err instanceof Error ? err.message : "";
+      const isNetwork =
+        msg.toLowerCase().includes("network") ||
+        msg.toLowerCase().includes("connection") ||
+        msg.toLowerCase().includes("fetch failed");
+      Alert.alert(
+        "Couldn't Start Walk",
+        isNetwork
+          ? "No internet connection. Please check your signal and try again."
+          : "Something went wrong starting your session. Please try again.",
+      );
     }
   }, [syncPoints, startLocationWatch]);
 
