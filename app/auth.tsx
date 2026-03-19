@@ -174,7 +174,7 @@ export default function AuthScreen() {
                 <>
                   <TextInput
                     style={styles.input}
-                    placeholder="Display Name"
+                    placeholder="Name"
                     placeholderTextColor="#9CA3AF"
                     value={displayName}
                     onChangeText={setDisplayName}
