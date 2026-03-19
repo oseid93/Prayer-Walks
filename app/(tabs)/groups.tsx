@@ -18,6 +18,7 @@ import { Feather } from "@expo/vector-icons";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/query-client";
 import { useTracking } from "@/lib/tracking-context";
+import { useAuth } from "@/lib/auth-context";
 
 interface Group {
   id: string;
@@ -31,6 +32,7 @@ export default function GroupsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { state: trackingState, startTracking } = useTracking();
+  const { user, logout } = useAuth();
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -234,6 +236,27 @@ export default function GroupsScreen() {
           scrollEnabled={groups.length > 0}
         />
       )}
+
+      {/* Account / Sign Out */}
+      <View style={[styles.accountSection, { paddingBottom: insets.bottom + (Platform.OS === "web" ? 34 : 0) + 16 }]}>
+        <View style={styles.accountDivider} />
+        <View style={styles.accountRow}>
+          <View style={styles.accountAvatar}>
+            <Feather name="user" size={18} color="#33C3F0" />
+          </View>
+          <View style={styles.accountInfo}>
+            <Text style={styles.accountName}>{user?.displayName ?? user?.username ?? "Account"}</Text>
+            <Text style={styles.accountUsername}>@{user?.username}</Text>
+          </View>
+          <Pressable
+            onPress={logout}
+            style={({ pressed }) => [styles.logoutBtn, { opacity: pressed ? 0.7 : 1 }]}
+            hitSlop={8}
+          >
+            <Feather name="log-out" size={18} color="#FF3B30" />
+          </Pressable>
+        </View>
+      </View>
 
       <Modal
         visible={showCreateModal}
@@ -585,5 +608,50 @@ const styles = StyleSheet.create({
     color: "#9CA3AF",
     fontSize: 14,
     fontFamily: "Inter_400Regular",
+  },
+  accountSection: {
+    paddingTop: 8,
+  },
+  accountDivider: {
+    height: 1,
+    backgroundColor: "#2D2D44",
+    marginBottom: 16,
+  },
+  accountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 4,
+  },
+  accountAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(51, 195, 240, 0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  accountInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  accountName: {
+    fontSize: 15,
+    fontWeight: "600" as const,
+    color: "#FFFFFF",
+    fontFamily: "Inter_600SemiBold",
+  },
+  accountUsername: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontFamily: "Inter_400Regular",
+  },
+  logoutBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    backgroundColor: "rgba(255, 59, 48, 0.1)",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
