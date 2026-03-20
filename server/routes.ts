@@ -4,7 +4,7 @@ import session from "express-session";
 import connectPg from "connect-pg-simple";
 import bcrypt from "bcrypt";
 import { storage } from "./storage";
-import { insertUserSchema, insertRoutePointsSchema } from "@shared/schema";
+import { insertUserSchema, insertRoutePointsSchema } from "../shared/schema";
 import { sendPasswordResetEmail } from "./email";
 
 const PgStore = connectPg(session);

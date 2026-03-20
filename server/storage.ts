@@ -14,7 +14,7 @@ import {
   routePoints,
   priorityAreas,
   passwordResetTokens,
-} from "@shared/schema";
+} from "../shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq, and, inArray, desc, asc, sum, count, gt } from "drizzle-orm";
 import pg from "pg";
