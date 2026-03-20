@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import {
   StyleSheet,
   View,
@@ -8,12 +8,13 @@ import {
   RefreshControl,
   ActivityIndicator,
   Pressable,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useRouter } from "expo-router";
-import { queryClient } from "@/lib/query-client";
+import { queryClient, apiRequest } from "@/lib/query-client";
 import { formatDuration, formatDistance } from "@/lib/coverage-utils";
 
 interface Session {
@@ -29,6 +30,7 @@ export default function HistoryScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const webTopInset = Platform.OS === "web" ? 67 : 0;
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const {
     data: sessions,
@@ -37,6 +39,35 @@ export default function HistoryScreen() {
   } = useQuery<Session[]>({
     queryKey: ["/api/sessions"],
   });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (sessionId: string) => {
+      await apiRequest("DELETE", `/api/sessions/${sessionId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/coverage"] });
+    },
+    onSettled: () => setDeletingId(null),
+  });
+
+  const handleDelete = (item: Session) => {
+    Alert.alert(
+      "Delete Walk",
+      `Delete the walk from ${formatDate(item.startedAt)}? This will also remove it from your heat map.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            setDeletingId(item.id);
+            deleteMutation.mutate(item.id);
+          },
+        },
+      ],
+    );
+  };
 
   const completedSessions = (sessions || []).filter((s) => !s.isActive);
 
@@ -66,42 +97,64 @@ export default function HistoryScreen() {
     });
   };
 
-  const renderSession = ({ item }: { item: Session }) => (
-    <Pressable
-      style={({ pressed }) => [
-        styles.sessionCard,
-        pressed && styles.sessionCardPressed,
-      ]}
-      onPress={() => router.push(`/session/${item.id}`)}
-      testID={`session-${item.id}`}
-    >
-      <View style={styles.sessionHeader}>
-        <Text style={styles.sessionDate}>{formatDate(item.startedAt)}</Text>
-        <View style={styles.sessionRight}>
-          {item.isActive && (
-            <View style={styles.activeBadge}>
-              <Text style={styles.activeBadgeText}>Active</Text>
-            </View>
-          )}
-          <Feather name="chevron-right" size={18} color="#6B7280" />
+  const renderSession = ({ item }: { item: Session }) => {
+    const isBeingDeleted = deletingId === item.id;
+
+    return (
+      <Pressable
+        style={({ pressed }) => [
+          styles.sessionCard,
+          pressed && styles.sessionCardPressed,
+          isBeingDeleted && styles.sessionCardDeleting,
+        ]}
+        onPress={() => router.push(`/session/${item.id}`)}
+        testID={`session-${item.id}`}
+      >
+        <View style={styles.sessionHeader}>
+          <Text style={styles.sessionDate}>{formatDate(item.startedAt)}</Text>
+          <View style={styles.sessionRight}>
+            {item.isActive && (
+              <View style={styles.activeBadge}>
+                <Text style={styles.activeBadgeText}>Active</Text>
+              </View>
+            )}
+            {!item.isActive && (
+              <Pressable
+                onPress={() => handleDelete(item)}
+                hitSlop={12}
+                style={({ pressed }) => [
+                  styles.deleteBtn,
+                  pressed && styles.deleteBtnPressed,
+                ]}
+                testID={`delete-session-${item.id}`}
+              >
+                {isBeingDeleted ? (
+                  <ActivityIndicator size="small" color="#FF3B30" />
+                ) : (
+                  <Feather name="trash-2" size={16} color="#FF3B30" />
+                )}
+              </Pressable>
+            )}
+            <Feather name="chevron-right" size={18} color="#6B7280" />
+          </View>
         </View>
-      </View>
-      <View style={styles.sessionStats}>
-        <View style={styles.sessionStat}>
-          <Feather name="clock" size={14} color="#33C3F0" />
-          <Text style={styles.sessionStatValue}>
-            {formatDuration(item.totalDuration || 0)}
-          </Text>
+        <View style={styles.sessionStats}>
+          <View style={styles.sessionStat}>
+            <Feather name="clock" size={14} color="#33C3F0" />
+            <Text style={styles.sessionStatValue}>
+              {formatDuration(item.totalDuration || 0)}
+            </Text>
+          </View>
+          <View style={styles.sessionStat}>
+            <Feather name="navigation" size={14} color="#4CD964" />
+            <Text style={styles.sessionStatValue}>
+              {formatDistance(item.totalDistance || 0)}
+            </Text>
+          </View>
         </View>
-        <View style={styles.sessionStat}>
-          <Feather name="navigation" size={14} color="#4CD964" />
-          <Text style={styles.sessionStatValue}>
-            {formatDistance(item.totalDistance || 0)}
-          </Text>
-        </View>
-      </View>
-    </Pressable>
-  );
+      </Pressable>
+    );
+  };
 
   return (
     <View
@@ -219,6 +272,9 @@ const styles = StyleSheet.create({
   sessionCardPressed: {
     backgroundColor: "#252540",
   },
+  sessionCardDeleting: {
+    opacity: 0.5,
+  },
   sessionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -227,7 +283,7 @@ const styles = StyleSheet.create({
   sessionRight: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 12,
   },
   sessionDate: {
     fontSize: 15,
@@ -246,6 +302,16 @@ const styles = StyleSheet.create({
     color: "#4CD964",
     fontWeight: "600" as const,
     fontFamily: "Inter_600SemiBold",
+  },
+  deleteBtn: {
+    width: 28,
+    height: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 6,
+  },
+  deleteBtnPressed: {
+    backgroundColor: "rgba(255, 59, 48, 0.1)",
   },
   sessionStats: {
     flexDirection: "row",

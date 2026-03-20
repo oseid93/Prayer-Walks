@@ -546,6 +546,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
     },
   );
 
+  app.delete(
+    "/api/sessions/:id",
+    requireAuth,
+    async (req: Request, res: Response) => {
+      try {
+        const deleted = await storage.deleteSession(req.params.id, req.session.userId!);
+        if (!deleted) {
+          return res.status(404).json({ message: "Session not found or not yours" });
+        }
+        res.json({ message: "Session deleted" });
+      } catch (error) {
+        console.error("Delete session error:", error);
+        res.status(500).json({ message: "Internal server error" });
+      }
+    },
+  );
+
   app.get(
     "/api/coverage",
     requireAuth,

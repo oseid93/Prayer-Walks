@@ -401,6 +401,17 @@ export class DatabaseStorage implements IStorage {
     return session;
   }
 
+  async deleteSession(sessionId: string, userId: string): Promise<boolean> {
+    const [session] = await db
+      .select()
+      .from(walkingSessions)
+      .where(and(eq(walkingSessions.id, sessionId), eq(walkingSessions.userId, userId)));
+    if (!session) return false;
+    await db.delete(routePoints).where(eq(routePoints.sessionId, sessionId));
+    await db.delete(walkingSessions).where(eq(walkingSessions.id, sessionId));
+    return true;
+  }
+
   async addRoutePoints(
     sessionId: string,
     points: Array<{
