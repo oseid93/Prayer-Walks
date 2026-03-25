@@ -314,7 +314,7 @@ const SLIDES: Slide[] = [
     iconColor: "#33C3F0",
     iconBg: "rgba(51,195,240,0.15)",
     title: "Prayer Groups",
-    body: "Join a group to combine coverage with friends. Admins can draw priority areas on the map to guide where to pray next.",
+    body: "Join a group to combine your coverage with others. You can view priority areas and where to pray next.",
   },
   {
     iconName: "check-circle",
