@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   StyleSheet,
   View,
@@ -6,6 +6,7 @@ import {
   Pressable,
   Modal,
   Platform,
+  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -92,7 +93,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#1A1A2E",
     borderRadius: 24,
     paddingTop: 28,
-    paddingHorizontal: 28,
     paddingBottom: 28,
     alignItems: "center",
     gap: 16,
@@ -101,14 +101,24 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 24,
     elevation: 16,
+    overflow: "hidden",
   },
   skipBtn: {
     alignSelf: "flex-end",
+    paddingHorizontal: 28,
   },
   skipText: {
     fontSize: 14,
     color: "#6B7280",
     fontFamily: "Inter_400Regular",
+  },
+  pager: {
+    width: "100%",
+  },
+  slide: {
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 28,
   },
   iconWrap: {
     width: 96,
@@ -155,6 +165,10 @@ const styles = StyleSheet.create({
     width: 20,
     backgroundColor: "#33C3F0",
   },
+  footer: {
+    width: "100%",
+    paddingHorizontal: 28,
+  },
   nextBtn: {
     flexDirection: "row",
     alignItems: "center",
@@ -176,7 +190,7 @@ const styles = StyleSheet.create({
   },
 });
 
-// ── Helper detail components (safe to use `detail` here since it's initialised above) ──
+// ── Helper detail components ──
 
 function CoverageKey() {
   const dots: { color: string; label: string }[] = [
@@ -253,7 +267,7 @@ function HistoryActions() {
   );
 }
 
-// ── Slides (components above are fully defined before this array) ──
+// ── Slides ──
 
 const SLIDES: Slide[] = [
   {
@@ -315,23 +329,51 @@ const SLIDES: Slide[] = [
 
 export default function TutorialModal({ visible, onDismiss }: TutorialModalProps) {
   const [step, setStep] = useState(0);
+  const [slideWidth, setSlideWidth] = useState(0);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const isScrollingRef = useRef(false);
   const insets = useSafeAreaInsets();
   const isLast = step === SLIDES.length - 1;
-  const slide = SLIDES[step];
+
+  // Reset to first slide whenever the modal opens
+  useEffect(() => {
+    if (visible) {
+      setStep(0);
+      scrollViewRef.current?.scrollTo({ x: 0, animated: false });
+    }
+  }, [visible]);
+
+  const scrollToStep = useCallback((target: number) => {
+    if (slideWidth === 0) return;
+    scrollViewRef.current?.scrollTo({ x: target * slideWidth, animated: true });
+  }, [slideWidth]);
 
   const handleNext = useCallback(() => {
     if (isLast) {
       setStep(0);
+      scrollViewRef.current?.scrollTo({ x: 0, animated: false });
       onDismiss();
     } else {
-      setStep((s) => s + 1);
+      const next = step + 1;
+      setStep(next);
+      scrollToStep(next);
     }
-  }, [isLast, onDismiss]);
+  }, [isLast, onDismiss, step, scrollToStep]);
 
   const handleSkip = useCallback(() => {
     setStep(0);
+    scrollViewRef.current?.scrollTo({ x: 0, animated: false });
     onDismiss();
   }, [onDismiss]);
+
+  const handleMomentumScrollEnd = useCallback((e: any) => {
+    if (slideWidth === 0) return;
+    const newStep = Math.round(e.nativeEvent.contentOffset.x / slideWidth);
+    if (newStep >= 0 && newStep < SLIDES.length) {
+      setStep(newStep);
+    }
+    isScrollingRef.current = false;
+  }, [slideWidth]);
 
   return (
     <Modal
@@ -342,6 +384,7 @@ export default function TutorialModal({ visible, onDismiss }: TutorialModalProps
     >
       <View style={[styles.overlay, { paddingTop: insets.top + (Platform.OS === "web" ? 67 : 0) }]}>
         <View style={[styles.card, { paddingBottom: insets.bottom + 24 }]}>
+
           {/* Skip */}
           {!isLast && (
             <Pressable
@@ -353,46 +396,68 @@ export default function TutorialModal({ visible, onDismiss }: TutorialModalProps
             </Pressable>
           )}
 
-          {/* Icon */}
-          <View style={[styles.iconWrap, { backgroundColor: slide.iconBg }]}>
-            <Feather name={slide.iconName} size={44} color={slide.iconColor} />
-          </View>
-
-          {/* Text */}
-          <Text style={styles.title}>{slide.title}</Text>
-          <Text style={styles.body}>{slide.body}</Text>
-
-          {/* Detail panel */}
-          {slide.detail ? (
-            <View style={styles.detailWrap}>{slide.detail}</View>
-          ) : null}
+          {/* Swipeable slides */}
+          <ScrollView
+            ref={scrollViewRef}
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            bounces={false}
+            decelerationRate="fast"
+            scrollEventThrottle={16}
+            onMomentumScrollBegin={() => { isScrollingRef.current = true; }}
+            onMomentumScrollEnd={handleMomentumScrollEnd}
+            onLayout={(e) => setSlideWidth(e.nativeEvent.layout.width)}
+            style={styles.pager}
+          >
+            {SLIDES.map((slide, index) => (
+              <View key={index} style={[styles.slide, { width: slideWidth }]}>
+                <View style={[styles.iconWrap, { backgroundColor: slide.iconBg }]}>
+                  <Feather name={slide.iconName} size={44} color={slide.iconColor} />
+                </View>
+                <Text style={styles.title}>{slide.title}</Text>
+                <Text style={styles.body}>{slide.body}</Text>
+                {slide.detail ? (
+                  <View style={styles.detailWrap}>{slide.detail}</View>
+                ) : null}
+              </View>
+            ))}
+          </ScrollView>
 
           {/* Progress dots */}
           <View style={styles.dotsRow}>
             {SLIDES.map((_, i) => (
-              <View
+              <Pressable
                 key={i}
-                style={[styles.dot, i === step && styles.dotActive]}
-              />
+                onPress={() => {
+                  setStep(i);
+                  scrollToStep(i);
+                }}
+                hitSlop={6}
+              >
+                <View style={[styles.dot, i === step && styles.dotActive]} />
+              </Pressable>
             ))}
           </View>
 
           {/* CTA */}
-          <Pressable
-            onPress={handleNext}
-            style={({ pressed }) => [
-              styles.nextBtn,
-              isLast && styles.nextBtnLast,
-              { opacity: pressed ? 0.85 : 1 },
-            ]}
-          >
-            <Text style={styles.nextText}>{isLast ? "Let's Go" : "Next"}</Text>
-            <Feather
-              name={isLast ? "arrow-right" : "chevron-right"}
-              size={18}
-              color="#fff"
-            />
-          </Pressable>
+          <View style={styles.footer}>
+            <Pressable
+              onPress={handleNext}
+              style={({ pressed }) => [
+                styles.nextBtn,
+                isLast && styles.nextBtnLast,
+                { opacity: pressed ? 0.85 : 1 },
+              ]}
+            >
+              <Text style={styles.nextText}>{isLast ? "Let's Go" : "Next"}</Text>
+              <Feather
+                name={isLast ? "arrow-right" : "chevron-right"}
+                size={18}
+                color="#fff"
+              />
+            </Pressable>
+          </View>
         </View>
       </View>
     </Modal>
