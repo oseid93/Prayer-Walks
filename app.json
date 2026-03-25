@@ -37,7 +37,16 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Prayer Walks needs your location to track your walks. Select 'Always' so walks are recorded even when your screen locks.",
+          "locationAlwaysPermission": "Prayer Walks needs 'Always' location access so your walks are tracked even when the screen is locked.",
+          "locationWhenInUsePermission": "Prayer Walks needs your location to track and map your walks.",
+          "isAndroidBackgroundLocationEnabled": true
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from "react";
 import * as Location from "expo-location";
-import { Platform, Alert } from "react-native";
+import { Platform, Alert, Linking } from "react-native";
 import { apiRequest } from "@/lib/query-client";
 import { queryClient } from "@/lib/query-client";
 
@@ -101,6 +101,35 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const prevLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const isTrackingActiveRef = useRef(false);
 
+  const promptBackgroundPermission = useCallback(async () => {
+    if (Platform.OS === "web") return;
+    const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
+    if (bgStatus === "granted") return;
+    Alert.alert(
+      "Enable 'Always On' Location",
+      "For your walks to be recorded even when your screen locks or you switch apps, please select \"Always\" when prompted.",
+      [
+        { text: "Not Now", style: "cancel" },
+        {
+          text: "Continue",
+          onPress: async () => {
+            const { status: newBgStatus } = await Location.requestBackgroundPermissionsAsync();
+            if (newBgStatus !== "granted") {
+              Alert.alert(
+                "Background Location Needed",
+                "To track walks when your screen is off, go to Settings and set location access to \"Always\".",
+                [
+                  { text: "Not Now", style: "cancel" },
+                  { text: "Open Settings", onPress: () => Linking.openSettings() },
+                ],
+              );
+            }
+          },
+        },
+      ],
+    );
+  }, []);
+
   useEffect(() => {
     (async () => {
       if (Platform.OS === "web") {
@@ -110,12 +139,17 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status !== "granted") {
         const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
-        setHasPermission(newStatus === "granted");
+        const granted = newStatus === "granted";
+        setHasPermission(granted);
+        if (granted) {
+          await promptBackgroundPermission();
+        }
       } else {
         setHasPermission(true);
+        await promptBackgroundPermission();
       }
     })();
-  }, []);
+  }, [promptBackgroundPermission]);
 
   useEffect(() => {
     (async () => {
@@ -165,9 +199,10 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           longitude: loc.coords.longitude,
         });
       } catch {}
+      await promptBackgroundPermission();
     }
     return granted;
-  }, []);
+  }, [promptBackgroundPermission]);
 
   const centerOnLocation = useCallback(async () => {
     if (Platform.OS === "web") return;
