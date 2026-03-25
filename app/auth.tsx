@@ -151,7 +151,7 @@ export default function AuthScreen() {
           <Feather name="map-pin" size={48} color="#33C3F0" />
         </View>
 
-        <Text style={styles.title}>StreetCover</Text>
+        <Text style={styles.title}>Prayer Walks</Text>
         <Text style={styles.subtitle}>
           {mode === "forgot" ? "Reset your password" :
            mode === "reset" ? "Enter your reset code" :

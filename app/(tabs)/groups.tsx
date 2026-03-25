@@ -103,7 +103,7 @@ export default function GroupsScreen() {
   const handleShareCode = async (group: Group) => {
     try {
       await Share.share({
-        message: `Join my StreetCover group "${group.name}"! Use code: ${group.code}`,
+        message: `Join my Prayer Walks group "${group.name}"! Use code: ${group.code}`,
       });
     } catch (_e) {}
   };

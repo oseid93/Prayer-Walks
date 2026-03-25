@@ -274,7 +274,7 @@ const SLIDES: Slide[] = [
     iconName: "map",
     iconColor: "#33C3F0",
     iconBg: "rgba(51,195,240,0.15)",
-    title: "Welcome to StreetCover",
+    title: "Welcome to Prayer Walks",
     body: "Track your prayer walks and watch your community fill with colour as you cover every street.",
   },
   {
