@@ -27,6 +27,7 @@ import {
 } from "@/lib/coverage-utils";
 import { useFocusEffect } from "expo-router";
 import { subscribeMapFocus, consumeMapFocusZone } from "@/lib/map-focus";
+import TutorialModal from "@/components/TutorialModal";
 
 interface RoutePointData {
   latitude: number;
@@ -99,6 +100,7 @@ export default function NativeMapScreen() {
   const [areaName, setAreaName] = useState("");
   const [saveGroupId, setSaveGroupId] = useState<string | null>(null);
   const [areaColor, setAreaColor] = useState(AREA_COLORS[0].value);
+  const [showTutorial, setShowTutorial] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -561,26 +563,16 @@ export default function NativeMapScreen() {
         </View>
       )}
 
-      {/* Legend */}
+      {/* Info button */}
       {!drawMode && (
-        <View style={styles.legend}>
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: "#4CD964" }]} />
-            <Text style={styles.legendText}>1x</Text>
-          </View>
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: "#FFCC00" }]} />
-            <Text style={styles.legendText}>2-3x</Text>
-          </View>
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: "#FF9500" }]} />
-            <Text style={styles.legendText}>4-5x</Text>
-          </View>
-          <View style={styles.legendRow}>
-            <View style={[styles.legendDot, { backgroundColor: "#FF3B30" }]} />
-            <Text style={styles.legendText}>6+</Text>
-          </View>
-        </View>
+        <Pressable
+          onPress={() => setShowTutorial(true)}
+          style={({ pressed }) => [styles.infoButton, { opacity: pressed ? 0.7 : 1 }]}
+          testID="info-button"
+          hitSlop={8}
+        >
+          <Feather name="info" size={20} color="#9CA3AF" />
+        </Pressable>
       )}
 
       {/* Controls */}
@@ -857,6 +849,11 @@ export default function NativeMapScreen() {
           </View>
         </View>
       </Modal>
+
+      <TutorialModal
+        visible={showTutorial}
+        onDismiss={() => setShowTutorial(false)}
+      />
     </View>
   );
 }
@@ -951,29 +948,21 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontFamily: "Inter_600SemiBold",
   },
-  legend: {
+  infoButton: {
     position: "absolute",
-    right: 16,
+    left: 16,
     bottom: 140,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: "rgba(15, 15, 35, 0.9)",
-    borderRadius: 10,
-    padding: 10,
-    gap: 6,
-  },
-  legendRow: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-  },
-  legendDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-  },
-  legendText: {
-    fontSize: 11,
-    color: "#9CA3AF",
-    fontFamily: "Inter_400Regular",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 4,
   },
   controlsContainer: {
     position: "absolute",
