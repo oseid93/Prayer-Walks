@@ -1,8 +1,16 @@
 import React, { createContext, useContext, useState, useRef, useCallback, useEffect } from "react";
 import * as Location from "expo-location";
-import { Platform, Alert, Linking } from "react-native";
+import * as TaskManager from "expo-task-manager";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { Platform, Alert, Linking, AppState, AppStateStatus } from "react-native";
 import { apiRequest } from "@/lib/query-client";
 import { queryClient } from "@/lib/query-client";
+import {
+  BACKGROUND_LOCATION_TASK,
+  BG_POINTS_KEY,
+  BG_SESSION_KEY,
+  BG_ACTIVE_KEY,
+} from "@/lib/location-task";
 
 interface TrackingPoint {
   latitude: number;
@@ -100,6 +108,97 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const sessionStartedAtRef = useRef<Date>(new Date());
   const prevLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const isTrackingActiveRef = useRef(false);
+  const sessionIdRef = useRef<string | null>(null);
+  const distanceRef = useRef<number>(0);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
+  // Keep refs in sync with state so callbacks always see current values
+  useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
+    distanceRef.current = distance;
+  }, [distance]);
+
+  // Drain any points buffered by the background task into our in-memory state
+  const mergeBackgroundPoints = useCallback(async () => {
+    if (Platform.OS === "web") return;
+    if (!isTrackingActiveRef.current) return;
+    try {
+      const raw = await AsyncStorage.getItem(BG_POINTS_KEY);
+      if (!raw) return;
+      await AsyncStorage.removeItem(BG_POINTS_KEY);
+      const bgPoints: TrackingPoint[] = JSON.parse(raw);
+      if (bgPoints.length === 0) return;
+
+      setCurrentPoints((prev) => {
+        const existingTs = new Set(prev.map((p) => p.timestamp));
+        const newPts = bgPoints.filter((p) => !existingTs.has(p.timestamp));
+        if (newPts.length === 0) return prev;
+
+        // Sort all points chronologically and recalculate any missing distance
+        const all = [...prev, ...newPts].sort(
+          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+        );
+
+        // Calculate distance contributed by newly-added background points
+        let extraDist = 0;
+        for (let i = 0; i < newPts.length; i++) {
+          const pt = newPts[i];
+          const idx = all.findIndex((p) => p.timestamp === pt.timestamp);
+          if (idx > 0) {
+            const prev2 = all[idx - 1];
+            extraDist += haversineDistance(
+              prev2.latitude,
+              prev2.longitude,
+              pt.latitude,
+              pt.longitude,
+            );
+          }
+        }
+        if (extraDist > 0.001) {
+          setDistance((d) => d + extraDist);
+          distanceRef.current += extraDist;
+        }
+
+        // Buffer new points for server sync
+        newPts.forEach((p) => pointsBufferRef.current.push(p));
+
+        // Update heading from last point
+        if (all.length >= 2) {
+          const last = all[all.length - 1];
+          const secondLast = all[all.length - 2];
+          setHeading(
+            calculateBearing(
+              secondLast.latitude,
+              secondLast.longitude,
+              last.latitude,
+              last.longitude,
+            ),
+          );
+        }
+
+        return all;
+      });
+    } catch {
+      // Non-fatal — just log and continue
+    }
+  }, []);
+
+  // Listen for app foregrounding to pick up background-buffered points
+  useEffect(() => {
+    const sub = AppState.addEventListener("change", async (nextState) => {
+      if (
+        appStateRef.current.match(/inactive|background/) &&
+        nextState === "active"
+      ) {
+        await mergeBackgroundPoints();
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, [mergeBackgroundPoints]);
 
   const promptBackgroundPermission = useCallback(async () => {
     if (Platform.OS === "web") return;
@@ -226,6 +325,9 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
 
   const syncPoints = useCallback(
     async (sid: string) => {
+      // Also pull in any background-buffered points before syncing
+      await mergeBackgroundPoints();
+
       if (pointsBufferRef.current.length === 0) return;
       const pointsToSync = [...pointsBufferRef.current];
       pointsBufferRef.current = [];
@@ -233,11 +335,11 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         await apiRequest("POST", `/api/sessions/${sid}/points`, {
           points: pointsToSync,
         });
-      } catch (err) {
+      } catch {
         pointsBufferRef.current = [...pointsToSync, ...pointsBufferRef.current];
       }
     },
-    [],
+    [mergeBackgroundPoints],
   );
 
   const startLocationWatch = useCallback(async () => {
@@ -292,73 +394,98 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           remove: () => navigator.geolocation.clearWatch(watchId),
         } as any;
       }
-    } else {
-      const sub = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 3000,
-          distanceInterval: 5,
-        },
-        (loc) => {
-          setCurrentLocation({
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-          });
-
-          if (!isTrackingActiveRef.current) return;
-
-          const point: TrackingPoint = {
-            latitude: loc.coords.latitude,
-            longitude: loc.coords.longitude,
-            timestamp: new Date(loc.timestamp).toISOString(),
-            accuracy: loc.coords.accuracy,
-          };
-
-          const prev = prevLocationRef.current;
-          if (prev) {
-            const d = haversineDistance(
-              prev.latitude,
-              prev.longitude,
-              point.latitude,
-              point.longitude,
-            );
-            if (d > 0.002) {
-              setDistance((prevDist) => prevDist + d);
-              setHeading(
-                calculateBearing(
-                  prev.latitude,
-                  prev.longitude,
-                  point.latitude,
-                  point.longitude,
-                ),
-              );
-            }
-          }
-          prevLocationRef.current = {
-            latitude: point.latitude,
-            longitude: point.longitude,
-          };
-
-          setCurrentPoints((prevPts) => [...prevPts, point]);
-          pointsBufferRef.current.push(point);
-        },
-      );
-      locationSubRef.current = sub;
-
-      try {
-        const headingSub = await Location.watchHeadingAsync((h) => {
-          if (h.trueHeading >= 0) {
-            setHeading(h.trueHeading);
-          } else if (h.magHeading >= 0) {
-            setHeading(h.magHeading);
-          }
-        });
-        headingSubRef.current = headingSub;
-      } catch {}
+      return;
     }
+
+    // Native: foreground watch (real-time UI updates while app is visible)
+    const sub = await Location.watchPositionAsync(
+      {
+        accuracy: Location.Accuracy.BestForNavigation,
+        timeInterval: 2000,
+        distanceInterval: 3,
+      },
+      (loc) => {
+        setCurrentLocation({
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+        });
+
+        if (!isTrackingActiveRef.current) return;
+
+        const point: TrackingPoint = {
+          latitude: loc.coords.latitude,
+          longitude: loc.coords.longitude,
+          timestamp: new Date(loc.timestamp).toISOString(),
+          accuracy: loc.coords.accuracy,
+        };
+
+        const prev = prevLocationRef.current;
+        if (prev) {
+          const d = haversineDistance(
+            prev.latitude,
+            prev.longitude,
+            point.latitude,
+            point.longitude,
+          );
+          if (d > 0.002) {
+            setDistance((prevDist) => prevDist + d);
+            setHeading(
+              calculateBearing(
+                prev.latitude,
+                prev.longitude,
+                point.latitude,
+                point.longitude,
+              ),
+            );
+          }
+        }
+        prevLocationRef.current = {
+          latitude: point.latitude,
+          longitude: point.longitude,
+        };
+
+        setCurrentPoints((prevPts) => [...prevPts, point]);
+        pointsBufferRef.current.push(point);
+      },
+    );
+    locationSubRef.current = sub;
+
+    // Native: start OS-level background location task so tracking
+    // continues when the screen locks or the app is backgrounded
+    try {
+      const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+      if (isRegistered) {
+        await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+          accuracy: Location.Accuracy.BestForNavigation,
+          timeInterval: 5000,
+          distanceInterval: 5,
+          showsBackgroundLocationIndicator: true,
+          foregroundService: {
+            notificationTitle: "Prayer Walk in Progress",
+            notificationBody: "Recording your walk in the background.",
+            notificationColor: "#33C3F0",
+          },
+          pausesUpdatesAutomatically: false,
+          activityType: Location.ActivityType.Fitness,
+        });
+      }
+    } catch {
+      // startLocationUpdatesAsync not available in Expo Go — foreground-only tracking still works
+    }
+
+    try {
+      const headingSub = await Location.watchHeadingAsync((h) => {
+        if (h.trueHeading >= 0) {
+          setHeading(h.trueHeading);
+        } else if (h.magHeading >= 0) {
+          setHeading(h.magHeading);
+        }
+      });
+      headingSubRef.current = headingSub;
+    } catch {}
   }, []);
 
-  const stopLocationWatch = useCallback(() => {
+  const stopLocationWatch = useCallback(async () => {
     if (locationSubRef.current) {
       locationSubRef.current.remove();
       locationSubRef.current = null;
@@ -367,10 +494,17 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       headingSubRef.current.remove();
       headingSubRef.current = null;
     }
+    if (Platform.OS !== "web") {
+      try {
+        const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+        if (isRegistered) {
+          await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        }
+      } catch {}
+    }
   }, []);
 
   const startTracking = useCallback(async () => {
-    // Check permission without blocking on a GPS fix — just verify the grant status
     if (Platform.OS !== "web") {
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status !== "granted") {
@@ -384,12 +518,10 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         }
         setHasPermission(true);
       }
-      // Ask for background ("Always") permission so walks record when screen locks
       await promptBackgroundPermission();
     }
 
     try {
-      // Retry session creation up to 2 times on network failure
       let res: Response | null = null;
       let lastErr: unknown;
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -406,12 +538,25 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       const session = await res.json();
       const sid = session.id;
       setSessionId(sid);
+      sessionIdRef.current = sid;
+
+      // Clear any stale background buffer from a previous session
+      await AsyncStorage.multiRemove([BG_POINTS_KEY]);
+
+      // Persist session ID and active flag for the background task
+      if (Platform.OS !== "web") {
+        await AsyncStorage.multiSet([
+          [BG_SESSION_KEY, sid],
+          [BG_ACTIVE_KEY, "true"],
+        ]);
+      }
 
       setCurrentPoints([]);
       setDistance(0);
       setElapsedTime(0);
       prevLocationRef.current = null;
       pointsBufferRef.current = [];
+      distanceRef.current = 0;
 
       startTimeRef.current = Date.now();
       pausedTimeRef.current = 0;
@@ -429,7 +574,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       await startLocationWatch();
 
       syncIntervalRef.current = setInterval(() => {
-        syncPoints(sid);
+        if (sessionIdRef.current) syncPoints(sessionIdRef.current);
       }, 15000);
 
       setState("tracking");
@@ -481,9 +626,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const stopTracking = useCallback(async () => {
     isTrackingActiveRef.current = false;
 
-    // Capture summary before clearing state
     const summary: CompletedSession = {
-      distance,
+      distance: distanceRef.current,
       duration: elapsedTime,
       startedAt: sessionStartedAtRef.current,
     };
@@ -492,24 +636,36 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    stopLocationWatch();
+
     if (syncIntervalRef.current) {
       clearInterval(syncIntervalRef.current);
       syncIntervalRef.current = null;
     }
 
+    // Signal background task to stop recording
+    if (Platform.OS !== "web") {
+      try {
+        await AsyncStorage.setItem(BG_ACTIVE_KEY, "false");
+      } catch {}
+    }
+
+    await stopLocationWatch();
+
+    // Flush any remaining background points before ending session
+    await mergeBackgroundPoints();
+
     if (sessionId) {
       try {
         await syncPoints(sessionId);
-      } catch (_e) {}
+      } catch {}
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           await apiRequest("PUT", `/api/sessions/${sessionId}/end`, {
-            totalDistance: distance,
+            totalDistance: distanceRef.current,
             totalDuration: elapsedTime,
           });
           break;
-        } catch (err) {
+        } catch {
           if (attempt < 2) {
             await new Promise((r) => setTimeout(r, 2000 * (attempt + 1)));
           } else {
@@ -519,21 +675,29 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    // Clean up AsyncStorage
+    if (Platform.OS !== "web") {
+      try {
+        await AsyncStorage.multiRemove([BG_SESSION_KEY, BG_ACTIVE_KEY, BG_POINTS_KEY]);
+      } catch {}
+    }
+
     queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
     queryClient.invalidateQueries({ queryKey: ["/api/coverage"] });
 
     setState("idle");
     setSessionId(null);
+    sessionIdRef.current = null;
     setCurrentPoints([]);
     setElapsedTime(0);
     setDistance(0);
+    distanceRef.current = 0;
     setHeading(null);
     prevLocationRef.current = null;
     pointsBufferRef.current = [];
 
-    // Show summary after state is fully reset
     setCompletedSession(summary);
-  }, [sessionId, distance, elapsedTime, syncPoints, stopLocationWatch]);
+  }, [sessionId, elapsedTime, syncPoints, stopLocationWatch, mergeBackgroundPoints]);
 
   return (
     <TrackingContext.Provider
