@@ -298,7 +298,7 @@ const SLIDES: Slide[] = [
     iconColor: "#FF9500",
     iconBg: "rgba(255,149,0,0.15)",
     title: "Coverage Heat Map",
-    body: "Streets light up as you walk them. Colours build from green → yellow → orange → red the more times you pray a street.",
+    body: "Streets light up as you cover them. Colours build the more times you pray on a street, from green to red.",
     detail: <CoverageKey />,
   },
   {
