@@ -103,31 +103,39 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
 
   const promptBackgroundPermission = useCallback(async () => {
     if (Platform.OS === "web") return;
-    const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
-    if (bgStatus === "granted") return;
-    Alert.alert(
-      "Enable 'Always On' Location",
-      "For your walks to be recorded even when your screen locks or you switch apps, please select \"Always\" when prompted.",
-      [
-        { text: "Not Now", style: "cancel" },
-        {
-          text: "Continue",
-          onPress: async () => {
-            const { status: newBgStatus } = await Location.requestBackgroundPermissionsAsync();
-            if (newBgStatus !== "granted") {
-              Alert.alert(
-                "Background Location Needed",
-                "To track walks when your screen is off, go to Settings and set location access to \"Always\".",
-                [
-                  { text: "Not Now", style: "cancel" },
-                  { text: "Open Settings", onPress: () => Linking.openSettings() },
-                ],
-              );
-            }
+    try {
+      const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
+      if (bgStatus === "granted") return;
+      Alert.alert(
+        "Enable 'Always On' Location",
+        "For your walks to be recorded even when your screen locks or you switch apps, please select \"Always\" when prompted.",
+        [
+          { text: "Not Now", style: "cancel" },
+          {
+            text: "Continue",
+            onPress: async () => {
+              try {
+                const { status: newBgStatus } = await Location.requestBackgroundPermissionsAsync();
+                if (newBgStatus !== "granted") {
+                  Alert.alert(
+                    "Background Location Needed",
+                    "To track walks when your screen is off, go to Settings and set location access to \"Always\".",
+                    [
+                      { text: "Not Now", style: "cancel" },
+                      { text: "Open Settings", onPress: () => Linking.openSettings() },
+                    ],
+                  );
+                }
+              } catch {
+                // Background location not available in this build environment
+              }
+            },
           },
-        },
-      ],
-    );
+        ],
+      );
+    } catch {
+      // Background permission API not available in this build environment (e.g. Expo Go)
+    }
   }, []);
 
   useEffect(() => {
