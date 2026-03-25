@@ -147,17 +147,12 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status !== "granted") {
         const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
-        const granted = newStatus === "granted";
-        setHasPermission(granted);
-        if (granted) {
-          await promptBackgroundPermission();
-        }
+        setHasPermission(newStatus === "granted");
       } else {
         setHasPermission(true);
-        await promptBackgroundPermission();
       }
     })();
-  }, [promptBackgroundPermission]);
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -389,6 +384,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         }
         setHasPermission(true);
       }
+      // Ask for background ("Always") permission so walks record when screen locks
+      await promptBackgroundPermission();
     }
 
     try {
@@ -450,7 +447,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           : "Something went wrong starting your session. Please try again.",
       );
     }
-  }, [syncPoints, startLocationWatch]);
+  }, [syncPoints, startLocationWatch, promptBackgroundPermission]);
 
   const pauseTracking = useCallback(() => {
     isTrackingActiveRef.current = false;
