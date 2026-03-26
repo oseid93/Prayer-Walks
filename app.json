@@ -15,7 +15,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.prayerwalks.app"
+      "bundleIdentifier": "com.prayerwalks.app",
+      "infoPlist": {
+        "LSApplicationQueriesSchemes": ["whatsapp"]
+      }
     },
     "android": {
       "package": "com.prayerwalks.app",
