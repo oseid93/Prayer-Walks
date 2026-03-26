@@ -110,16 +110,13 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const isTrackingActiveRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
   const distanceRef = useRef<number>(0);
+  const currentPointsRef = useRef<TrackingPoint[]>([]);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   // Keep refs in sync with state so callbacks always see current values
-  useEffect(() => {
-    sessionIdRef.current = sessionId;
-  }, [sessionId]);
-
-  useEffect(() => {
-    distanceRef.current = distance;
-  }, [distance]);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+  useEffect(() => { distanceRef.current = distance; }, [distance]);
+  useEffect(() => { currentPointsRef.current = currentPoints; }, [currentPoints]);
 
   // Drain any points buffered by the background task into our in-memory state
   const mergeBackgroundPoints = useCallback(async () => {
@@ -132,57 +129,54 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       const bgPoints: TrackingPoint[] = JSON.parse(raw);
       if (bgPoints.length === 0) return;
 
-      setCurrentPoints((prev) => {
-        const existingTs = new Set(prev.map((p) => p.timestamp));
-        const newPts = bgPoints.filter((p) => !existingTs.has(p.timestamp));
-        if (newPts.length === 0) return prev;
+      // Use ref so we don't need currentPoints in deps
+      const prev = currentPointsRef.current;
+      const existingTs = new Set(prev.map((p) => p.timestamp));
+      const newPts = bgPoints.filter((p) => !existingTs.has(p.timestamp));
+      if (newPts.length === 0) return;
 
-        // Sort all points chronologically and recalculate any missing distance
-        const all = [...prev, ...newPts].sort(
-          (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-        );
+      // Merge and sort chronologically
+      const all = [...prev, ...newPts].sort(
+        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+      );
 
-        // Calculate distance contributed by newly-added background points
-        let extraDist = 0;
-        for (let i = 0; i < newPts.length; i++) {
-          const pt = newPts[i];
-          const idx = all.findIndex((p) => p.timestamp === pt.timestamp);
-          if (idx > 0) {
-            const prev2 = all[idx - 1];
-            extraDist += haversineDistance(
-              prev2.latitude,
-              prev2.longitude,
-              pt.latitude,
-              pt.longitude,
-            );
-          }
-        }
-        if (extraDist > 0.001) {
-          setDistance((d) => d + extraDist);
-          distanceRef.current += extraDist;
-        }
-
-        // Buffer new points for server sync
-        newPts.forEach((p) => pointsBufferRef.current.push(p));
-
-        // Update heading from last point
-        if (all.length >= 2) {
-          const last = all[all.length - 1];
-          const secondLast = all[all.length - 2];
-          setHeading(
-            calculateBearing(
-              secondLast.latitude,
-              secondLast.longitude,
-              last.latitude,
-              last.longitude,
-            ),
+      // Calculate extra distance from the newly inserted background points
+      let extraDist = 0;
+      for (const pt of newPts) {
+        const idx = all.findIndex((p) => p.timestamp === pt.timestamp);
+        if (idx > 0) {
+          const before = all[idx - 1];
+          extraDist += haversineDistance(
+            before.latitude, before.longitude,
+            pt.latitude, pt.longitude,
           );
         }
+      }
 
-        return all;
-      });
+      // Buffer new points for server sync
+      newPts.forEach((p) => pointsBufferRef.current.push(p));
+
+      // Batch all state updates together
+      setCurrentPoints(all);
+      if (extraDist > 0.001) {
+        setDistance((d) => {
+          const next = d + extraDist;
+          distanceRef.current = next;
+          return next;
+        });
+      }
+      if (all.length >= 2) {
+        const last = all[all.length - 1];
+        const secondLast = all[all.length - 2];
+        setHeading(
+          calculateBearing(
+            secondLast.latitude, secondLast.longitude,
+            last.latitude, last.longitude,
+          ),
+        );
+      }
     } catch {
-      // Non-fatal — just log and continue
+      // Non-fatal
     }
   }, []);
 
@@ -689,6 +683,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     setSessionId(null);
     sessionIdRef.current = null;
     setCurrentPoints([]);
+    currentPointsRef.current = [];
     setElapsedTime(0);
     setDistance(0);
     distanceRef.current = 0;
