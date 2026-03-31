@@ -34,12 +34,14 @@ TaskManager.defineTask(BACKGROUND_LOCATION_TASK, async ({ data, error }: any) =>
     const existing = await AsyncStorage.getItem(BG_POINTS_KEY);
     const buffered: object[] = existing ? JSON.parse(existing) : [];
 
-    const newPoints = locations.map((loc) => ({
-      latitude: loc.coords.latitude,
-      longitude: loc.coords.longitude,
-      timestamp: new Date(loc.timestamp).toISOString(),
-      accuracy: loc.coords.accuracy,
-    }));
+    const newPoints = locations
+      .filter((loc) => loc.coords.accuracy === null || loc.coords.accuracy <= 50)
+      .map((loc) => ({
+        latitude: loc.coords.latitude,
+        longitude: loc.coords.longitude,
+        timestamp: new Date(loc.timestamp).toISOString(),
+        accuracy: loc.coords.accuracy,
+      }));
 
     await AsyncStorage.setItem(
       BG_POINTS_KEY,

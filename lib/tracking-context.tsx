@@ -406,6 +406,9 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
 
         if (!isTrackingActiveRef.current) return;
 
+        // Skip inaccurate foreground fixes (e.g. cell-tower lock > 50 m)
+        if (loc.coords.accuracy !== null && loc.coords.accuracy > 50) return;
+
         const point: TrackingPoint = {
           latitude: loc.coords.latitude,
           longitude: loc.coords.longitude,
@@ -451,8 +454,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       if (isRegistered) {
         await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
           accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 5000,
-          distanceInterval: 5,
+          timeInterval: 3000,
+          distanceInterval: 3,
           showsBackgroundLocationIndicator: true,
           foregroundService: {
             notificationTitle: "Prayer Walk in Progress",
@@ -461,6 +464,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           },
           pausesUpdatesAutomatically: false,
           activityType: Location.ActivityType.Fitness,
+          deferredUpdatesInterval: 0,
+          deferredUpdatesDistance: 0,
         });
       }
     } catch {
@@ -595,6 +600,10 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       timerRef.current = null;
     }
     pausedTimeRef.current += Date.now() - startTimeRef.current - pausedTimeRef.current - elapsedTime * 1000;
+    // Tell background task to stop recording points while paused
+    if (Platform.OS !== "web") {
+      AsyncStorage.setItem(BG_ACTIVE_KEY, "false").catch(() => {});
+    }
     setState("paused");
   }, [elapsedTime]);
 
@@ -603,6 +612,11 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     const resumeStart = Date.now();
     startTimeRef.current = resumeStart - elapsedTime * 1000;
     pausedTimeRef.current = 0;
+
+    // Re-enable background task recording after pause
+    if (Platform.OS !== "web") {
+      AsyncStorage.setItem(BG_ACTIVE_KEY, "true").catch(() => {});
+    }
 
     timerRef.current = setInterval(() => {
       const now = Date.now();
