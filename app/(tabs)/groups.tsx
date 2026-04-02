@@ -554,7 +554,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 16,
     gap: 14,
-    marginBottom: 12,
+    marginBottom: 24,
   },
   avatarCircle: {
     width: 56,
@@ -604,14 +604,14 @@ const styles = StyleSheet.create({
   sectionDivider: {
     height: 1,
     backgroundColor: "#2D2D44",
-    marginVertical: 20,
+    marginVertical: 8,
   },
   signOutBtn: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    marginTop: 24,
+    marginTop: 40,
     paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: "rgba(255, 59, 48, 0.08)",
@@ -631,13 +631,13 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     letterSpacing: 0.8,
     textTransform: "uppercase",
-    marginTop: 16,
-    marginBottom: 12,
+    marginTop: 24,
+    marginBottom: 16,
   },
   actionButtons: {
     flexDirection: "row",
     gap: 12,
-    marginBottom: 16,
+    marginBottom: 20,
   },
   actionButton: {
     flex: 1,
