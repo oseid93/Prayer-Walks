@@ -117,6 +117,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
 
+  app.patch("/api/auth/profile", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { displayName } = req.body;
+      if (!displayName || !displayName.trim()) {
+        return res.status(400).json({ message: "Display name required" });
+      }
+      const trimmed = displayName.trim();
+      const existing = await storage.getUserByDisplayName(trimmed);
+      if (existing && existing.id !== req.session.userId) {
+        return res.status(409).json({ message: "That name is already taken" });
+      }
+      await storage.updateDisplayName(req.session.userId!, trimmed);
+      res.json({ displayName: trimmed });
+    } catch (error) {
+      console.error("Update profile error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/groups/:id/leave", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const groupId = req.params.id;
+      const isMember = await storage.isGroupMember(req.session.userId!, groupId);
+      if (!isMember) {
+        return res.status(404).json({ message: "Not a member of this group" });
+      }
+      await storage.removeMember(req.session.userId!, groupId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Leave group error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
     try {
       const { email } = req.body;

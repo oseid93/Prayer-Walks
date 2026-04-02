@@ -55,9 +55,9 @@ export default function TabLayout() {
       <Tabs.Screen
         name="groups"
         options={{
-          title: "Groups",
+          title: "Profile",
           tabBarIcon: ({ color, size }) => (
-            <Feather name="users" size={size} color={color} />
+            <Feather name="user" size={size} color={color} />
           ),
         }}
       />
