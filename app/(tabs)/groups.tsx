@@ -271,39 +271,25 @@ export default function ProfileScreen() {
           <View style={styles.accountTextBlock}>
             <Text style={styles.accountDisplayName}>{displayName}</Text>
             <Text style={styles.accountUsername}>@{user?.username}</Text>
+            {user?.email ? (
+              <Text style={styles.accountEmail}>{user.email}</Text>
+            ) : null}
           </View>
+          <Pressable
+            onPress={() => {
+              setNewDisplayName(user?.displayName ?? "");
+              setError("");
+              setShowAccountModal(true);
+            }}
+            style={({ pressed }) => [styles.editBtn, { opacity: pressed ? 0.6 : 1 }]}
+            hitSlop={8}
+          >
+            <Feather name="edit-2" size={16} color="#33C3F0" />
+          </Pressable>
         </View>
 
-        {/* Account Details row */}
-        <Pressable
-          onPress={() => {
-            setNewDisplayName(user?.displayName ?? "");
-            setError("");
-            setShowAccountModal(true);
-          }}
-          style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
-        >
-          <View style={styles.menuRowLeft}>
-            <View style={[styles.menuIcon, { backgroundColor: "rgba(51, 195, 240, 0.12)" }]}>
-              <Feather name="user" size={18} color="#33C3F0" />
-            </View>
-            <Text style={styles.menuRowLabel}>Account Details</Text>
-          </View>
-          <Feather name="chevron-right" size={18} color="#6B7280" />
-        </Pressable>
-
-        {/* Sign out row */}
-        <Pressable
-          onPress={handleLogout}
-          style={({ pressed }) => [styles.menuRow, { opacity: pressed ? 0.7 : 1 }]}
-        >
-          <View style={styles.menuRowLeft}>
-            <View style={[styles.menuIcon, { backgroundColor: "rgba(255, 59, 48, 0.1)" }]}>
-              <Feather name="log-out" size={18} color="#FF3B30" />
-            </View>
-            <Text style={[styles.menuRowLabel, { color: "#FF3B30" }]}>Sign Out</Text>
-          </View>
-        </Pressable>
+        {/* Divider */}
+        <View style={styles.sectionDivider} />
 
         {/* Groups section */}
         <Text style={styles.sectionLabel}>My Groups</Text>
@@ -361,6 +347,15 @@ export default function ProfileScreen() {
             ))}
           </View>
         )}
+
+        {/* Sign Out at the bottom */}
+        <Pressable
+          onPress={handleLogout}
+          style={({ pressed }) => [styles.signOutBtn, { opacity: pressed ? 0.7 : 1 }]}
+        >
+          <Feather name="log-out" size={18} color="#FF3B30" />
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </Pressable>
       </ScrollView>
 
       {/* Account Details Modal */}
@@ -592,33 +587,42 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     fontFamily: "Inter_400Regular",
   },
-  menuRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: "#1A1A2E",
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
-    marginBottom: 8,
+  accountEmail: {
+    fontSize: 12,
+    color: "#6B7280",
+    fontFamily: "Inter_400Regular",
+    marginTop: 1,
   },
-  menuRowLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  menuIcon: {
+  editBtn: {
     width: 36,
     height: 36,
     borderRadius: 10,
+    backgroundColor: "rgba(51, 195, 240, 0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
-  menuRowLabel: {
+  sectionDivider: {
+    height: 1,
+    backgroundColor: "#2D2D44",
+    marginVertical: 20,
+  },
+  signOutBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    marginTop: 24,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 59, 48, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 59, 48, 0.2)",
+  },
+  signOutText: {
     fontSize: 15,
-    fontWeight: "500" as const,
-    color: "#FFFFFF",
-    fontFamily: "Inter_500Medium",
+    fontWeight: "600" as const,
+    color: "#FF3B30",
+    fontFamily: "Inter_600SemiBold",
   },
   sectionLabel: {
     fontSize: 13,
