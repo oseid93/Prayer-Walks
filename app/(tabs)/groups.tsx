@@ -13,6 +13,7 @@ import {
   Alert,
   Share,
   ScrollView,
+  useWindowDimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -32,10 +33,21 @@ interface Group {
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
+  const { height: screenHeight } = useWindowDimensions();
   const router = useRouter();
   const { state: trackingState, startTracking } = useTracking();
   const { user, logout } = useAuth();
   const webTopInset = Platform.OS === "web" ? 67 : 0;
+
+  // Tab bar height + sign out button area reserved at the bottom
+  const tabBarHeight = Platform.OS === "web" ? 84 : 49;
+  const signOutAreaHeight = insets.bottom + tabBarHeight + 68;
+
+  // Push groups section to roughly the halfway point of the screen.
+  // Estimated height of content above the divider: title (~68px) + accountCard (~112px) + divider margins (17px) ≈ 197px
+  const contentAboveDivider = 197;
+  const halfScreen = (screenHeight - insets.top - webTopInset) / 2;
+  const groupsSpacer = Math.max(0, halfScreen - contentAboveDivider);
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -253,7 +265,7 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: insets.bottom + (Platform.OS === "web" ? 84 : 49) + 24 },
+          { paddingBottom: signOutAreaHeight + 16 },
         ]}
         refreshControl={
           <RefreshControl
@@ -290,6 +302,9 @@ export default function ProfileScreen() {
 
         {/* Divider */}
         <View style={styles.sectionDivider} />
+
+        {/* Spacer to push groups to roughly halfway down the screen */}
+        {groupsSpacer > 0 && <View style={{ height: groupsSpacer }} />}
 
         {/* Groups section */}
         <Text style={styles.sectionLabel}>My Groups</Text>
@@ -348,15 +363,22 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* Sign Out at the bottom */}
-        <Pressable
-          onPress={handleLogout}
-          style={({ pressed }) => [styles.signOutBtn, { opacity: pressed ? 0.7 : 1 }]}
-        >
-          <Feather name="log-out" size={18} color="#FF3B30" />
-          <Text style={styles.signOutText}>Sign Out</Text>
-        </Pressable>
       </ScrollView>
+
+      {/* Sign Out pinned just above the tab bar */}
+      <Pressable
+        onPress={handleLogout}
+        style={({ pressed }) => [
+          styles.signOutBtn,
+          {
+            bottom: insets.bottom + tabBarHeight + 12,
+            opacity: pressed ? 0.7 : 1,
+          },
+        ]}
+      >
+        <Feather name="log-out" size={18} color="#FF3B30" />
+        <Text style={styles.signOutText}>Sign Out</Text>
+      </Pressable>
 
       {/* Account Details Modal */}
       <Modal
@@ -607,11 +629,13 @@ const styles = StyleSheet.create({
     marginVertical: 8,
   },
   signOutBtn: {
+    position: "absolute",
+    left: 20,
+    right: 20,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
-    marginTop: 40,
     paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: "rgba(255, 59, 48, 0.08)",
