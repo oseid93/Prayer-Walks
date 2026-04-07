@@ -43,11 +43,13 @@ export default function ProfileScreen() {
   const tabBarHeight = Platform.OS === "web" ? 84 : 49;
   const signOutAreaHeight = insets.bottom + tabBarHeight + 68;
 
-  // Push groups section to roughly the halfway point of the screen.
-  // Estimated height of content above the divider: title (~68px) + accountCard (~112px) + divider margins (17px) ≈ 197px
-  const contentAboveDivider = 197;
-  const halfScreen = (screenHeight - insets.top - webTopInset) / 2;
-  const groupsSpacer = Math.max(0, halfScreen - contentAboveDivider);
+  // Push the divider line to exactly the halfway point of the screen.
+  // Fixed heights above the spacer: title (~56px) + accountCard (~88px) + accountCard marginBottom (24px) ≈ 168px
+  const ABOVE_SPACER_HEIGHT = 168;
+  const groupsSpacer = Math.max(
+    0,
+    screenHeight / 2 - (insets.top + webTopInset + ABOVE_SPACER_HEIGHT)
+  );
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showJoinModal, setShowJoinModal] = useState(false);
@@ -300,11 +302,11 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
 
+        {/* Spacer to push the divider to roughly the halfway point of the screen */}
+        {groupsSpacer > 0 && <View style={{ height: groupsSpacer }} />}
+
         {/* Divider */}
         <View style={styles.sectionDivider} />
-
-        {/* Spacer to push groups to roughly halfway down the screen */}
-        {groupsSpacer > 0 && <View style={{ height: groupsSpacer }} />}
 
         {/* Groups section */}
         <Text style={styles.sectionLabel}>My Groups</Text>
