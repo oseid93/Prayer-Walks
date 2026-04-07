@@ -350,13 +350,23 @@ export default function ProfileScreen() {
             <ActivityIndicator size="large" color="#33C3F0" />
           </View>
         ) : !groups || groups.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <Feather name="users" size={40} color="#6B7280" />
-            <Text style={styles.emptyText}>No groups yet</Text>
-            <Text style={styles.emptySubtext}>
-              Create a group or join one with a code to share coverage with friends
-            </Text>
-          </View>
+          <>
+            <View style={styles.emptyContainer}>
+              <Feather name="users" size={40} color="#6B7280" />
+              <Text style={styles.emptyText}>No groups yet</Text>
+              <Text style={styles.emptySubtext}>
+                Create a group or join one with a code to share coverage with friends
+              </Text>
+            </View>
+            {/* Sign Out flows in scroll when no groups so it never overlaps */}
+            <Pressable
+              onPress={handleLogout}
+              style={({ pressed }) => [styles.signOutBtnInline, { opacity: pressed ? 0.7 : 1 }]}
+            >
+              <Feather name="log-out" size={18} color="#FF3B30" />
+              <Text style={styles.signOutText}>Sign Out</Text>
+            </Pressable>
+          </>
         ) : (
           <View style={styles.groupsList}>
             {groups.map((item) => (
@@ -367,20 +377,22 @@ export default function ProfileScreen() {
 
       </ScrollView>
 
-      {/* Sign Out pinned just above the tab bar */}
-      <Pressable
-        onPress={handleLogout}
-        style={({ pressed }) => [
-          styles.signOutBtn,
-          {
-            bottom: insets.bottom + tabBarHeight + 12,
-            opacity: pressed ? 0.7 : 1,
-          },
-        ]}
-      >
-        <Feather name="log-out" size={18} color="#FF3B30" />
-        <Text style={styles.signOutText}>Sign Out</Text>
-      </Pressable>
+      {/* Sign Out pinned above tab bar — only shown when groups exist */}
+      {groups && groups.length > 0 && (
+        <Pressable
+          onPress={handleLogout}
+          style={({ pressed }) => [
+            styles.signOutBtn,
+            {
+              bottom: insets.bottom + tabBarHeight + 12,
+              opacity: pressed ? 0.7 : 1,
+            },
+          ]}
+        >
+          <Feather name="log-out" size={18} color="#FF3B30" />
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </Pressable>
+      )}
 
       {/* Account Details Modal */}
       <Modal
@@ -565,7 +577,7 @@ const styles = StyleSheet.create({
     fontWeight: "700" as const,
     color: "#FFFFFF",
     marginTop: 16,
-    marginBottom: 20,
+    marginBottom: 28,
     fontFamily: "Inter_700Bold",
   },
   scrollContent: {
@@ -638,6 +650,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 59, 48, 0.08)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 59, 48, 0.2)",
+  },
+  signOutBtnInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    marginTop: 32,
     paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: "rgba(255, 59, 48, 0.08)",
