@@ -590,6 +590,23 @@ export default function NativeMapScreen() {
         </View>
       )}
 
+      {/* Team selector — shown when in group mode with multiple teams */}
+      {viewMode === "group" && state === "idle" && !drawMode && (myTeams?.length ?? 0) > 1 && (
+        <View style={[styles.teamSelectorRow, { top: insets.top + 60 }]}>
+          {myTeams?.map((t) => (
+            <Pressable
+              key={t.id}
+              onPress={() => setSelectedTeamId(t.id)}
+              style={[styles.dateFilterPill, selectedTeamId === t.id && styles.dateFilterPillActive]}
+            >
+              <Text style={[styles.dateFilterText, selectedTeamId === t.id && styles.dateFilterTextActive]} numberOfLines={1}>
+                {t.name}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {/* Location permission banner */}
       {permStatus !== "granted" && state === "idle" && !drawMode && (
         <Pressable
@@ -1355,6 +1372,15 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#6B7280",
     fontFamily: "Inter_400Regular",
+  },
+  teamSelectorRow: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    justifyContent: "center",
   },
   permBanner: {
     position: "absolute",

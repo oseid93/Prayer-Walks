@@ -11,6 +11,7 @@ import { setMapFocusZone } from "@/lib/map-focus";
 interface MemberStats { userId: string; displayName: string; role: string; sessionCount: number; totalDistance: number; totalDuration: number; }
 interface BranchStats { memberCount: number; sessionCount: number; totalDistance: number; totalDuration: number; }
 interface PriorityArea { id: string; name: string; color: string; coordinates: Array<{ latitude: number; longitude: number }>; }
+interface Team { id: string; name: string; role: string | null; memberCount: number; }
 
 function fmtDist(km: number) { return km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(km * 1000)} m`; }
 function fmtDur(s: number) { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; }
@@ -29,6 +30,7 @@ export default function BranchDetailScreen() {
     enabled: isAdmin,
   });
   const { data: priorityAreas } = useQuery<PriorityArea[]>({ queryKey: [`/api/branches/${id}/priority-areas`] });
+  const { data: teams } = useQuery<Team[]>({ queryKey: [`/api/branches/${id}/teams`] });
 
   type SortKey = "walks" | "distance" | "name";
   const [sortBy, setSortBy] = useState<SortKey>("walks");
@@ -204,6 +206,30 @@ export default function BranchDetailScreen() {
             )}
           </Pressable>
         ))}
+        {/* Teams section */}
+        <Text style={[styles.sectionTitle, { marginTop: 20, marginBottom: 12 }]}>Teams</Text>
+        {!teams || teams.length === 0 ? (
+          <View style={styles.zonesEmpty}>
+            <Feather name="users" size={24} color="#4B5563" />
+            <Text style={styles.emptyText}>{isAdmin ? "No teams yet." : "No teams in this branch."}</Text>
+          </View>
+        ) : teams.map((t) => (
+          <Pressable
+            key={t.id}
+            onPress={() => router.push({ pathname: "/team-detail", params: { id: t.id, name: t.name, role: t.role ?? "participant" } })}
+            style={({ pressed }) => [styles.teamCard, { opacity: pressed ? 0.75 : 1 }]}
+          >
+            <View style={styles.teamIcon}>
+              <Feather name="users" size={18} color="#FF9500" />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.zoneName}>{t.name}</Text>
+              <Text style={styles.zonePoints}>{t.memberCount} {t.memberCount === 1 ? "member" : "members"}</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#6B7280" />
+          </Pressable>
+        ))}
+
         <View style={{ height: 80 }} />
       </ScrollView>
     </View>
@@ -251,4 +277,6 @@ const styles = StyleSheet.create({
   zoneInfo: { flex: 1, padding: 14 },
   zoneName: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#FFFFFF" },
   zonePoints: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#6B7280", marginTop: 2 },
+  teamCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#1A1A35", borderRadius: 12, padding: 14, marginBottom: 8, gap: 12 },
+  teamIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,149,0,0.15)", alignItems: "center", justifyContent: "center" },
 });

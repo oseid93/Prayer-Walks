@@ -16,6 +16,7 @@ interface MemberStats {
   totalDuration: number;
 }
 interface ChurchStats { memberCount: number; sessionCount: number; totalDistance: number; totalDuration: number; }
+interface Branch { id: string; name: string; role: string | null; memberCount: number; }
 
 function fmtDist(km: number) { return km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(km * 1000)} m`; }
 function fmtDur(s: number) { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; }
@@ -33,6 +34,7 @@ export default function ChurchDetailScreen() {
     queryKey: [`/api/churches/${id}/members`],
     enabled: isAdmin,
   });
+  const { data: branches } = useQuery<Branch[]>({ queryKey: [`/api/churches/${id}/branches`] });
 
   type SortKey = "walks" | "distance" | "name";
   const [sortBy, setSortBy] = useState<SortKey>("walks");
@@ -157,6 +159,30 @@ export default function ChurchDetailScreen() {
             <Text style={styles.memberMessageSub}>Your walks contribute to the shared stats above.</Text>
           </View>
         )}
+        {/* Branches section */}
+        <Text style={[styles.sectionTitle, { marginTop: 20, marginBottom: 12 }]}>Branches</Text>
+        {!branches || branches.length === 0 ? (
+          <View style={styles.memberMessage}>
+            <Feather name="git-branch" size={24} color="#4B5563" />
+            <Text style={styles.memberMessageSub}>No branches yet.</Text>
+          </View>
+        ) : branches.map((b) => (
+          <Pressable
+            key={b.id}
+            onPress={() => router.push({ pathname: "/branch-detail", params: { id: b.id, name: b.name, role: b.role ?? "participant" } })}
+            style={({ pressed }) => [styles.branchCard, { opacity: pressed ? 0.75 : 1 }]}
+          >
+            <View style={styles.branchIcon}>
+              <Feather name="git-branch" size={18} color="#4CD964" />
+            </View>
+            <View style={styles.memberInfo}>
+              <Text style={styles.memberName}>{b.name}</Text>
+              <Text style={styles.memberStatText}>{b.memberCount} {b.memberCount === 1 ? "member" : "members"}</Text>
+            </View>
+            <Feather name="chevron-right" size={18} color="#6B7280" />
+          </Pressable>
+        ))}
+
         <View style={{ height: 80 }} />
       </ScrollView>
     </View>
@@ -198,4 +224,6 @@ const styles = StyleSheet.create({
   memberMessage: { alignItems: "center", paddingVertical: 40, gap: 12 },
   memberMessageTitle: { fontSize: 16, fontFamily: "Inter_600SemiBold", color: "#9CA3AF" },
   memberMessageSub: { fontSize: 13, fontFamily: "Inter_400Regular", color: "#6B7280", textAlign: "center" },
+  branchCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#1A1A35", borderRadius: 12, padding: 14, marginBottom: 8, gap: 12 },
+  branchIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(76,217,100,0.15)", alignItems: "center", justifyContent: "center" },
 });
