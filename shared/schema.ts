@@ -8,6 +8,7 @@ import {
   integer,
   boolean,
   index,
+  unique,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -36,6 +37,7 @@ export const passwordResetTokens = pgTable("password_reset_tokens", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+// Groups table is now "Churches" conceptually (API exposes as /api/churches)
 export const groups = pgTable("groups", {
   id: varchar("id")
     .primaryKey()
@@ -66,6 +68,93 @@ export const groupMemberships = pgTable(
   (table) => [
     index("group_memberships_user_idx").on(table.userId),
     index("group_memberships_group_idx").on(table.groupId),
+  ],
+);
+
+// Branches belong to a church (group)
+export const branches = pgTable(
+  "branches",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    churchId: varchar("church_id")
+      .notNull()
+      .references(() => groups.id),
+    name: text("name").notNull(),
+    createdById: varchar("created_by_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("branches_church_idx").on(table.churchId)],
+);
+
+// User can be in at most one branch per church
+export const branchMemberships = pgTable(
+  "branch_memberships",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id),
+    branchId: varchar("branch_id")
+      .notNull()
+      .references(() => branches.id),
+    churchId: varchar("church_id")
+      .notNull()
+      .references(() => groups.id),
+    role: text("role").notNull().default("participant"),
+    joinedAt: timestamp("joined_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("branch_memberships_user_idx").on(table.userId),
+    index("branch_memberships_branch_idx").on(table.branchId),
+    unique("branch_memberships_user_church_unique").on(table.userId, table.churchId),
+  ],
+);
+
+// Teams belong to a branch
+export const teams = pgTable(
+  "teams",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    branchId: varchar("branch_id")
+      .notNull()
+      .references(() => branches.id),
+    name: text("name").notNull(),
+    createdById: varchar("created_by_id")
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("teams_branch_idx").on(table.branchId)],
+);
+
+// User can be in multiple teams within a branch
+export const teamMemberships = pgTable(
+  "team_memberships",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id),
+    teamId: varchar("team_id")
+      .notNull()
+      .references(() => teams.id),
+    role: text("role").notNull().default("participant"),
+    joinedAt: timestamp("joined_at").defaultNow().notNull(),
+  },
+  (table) => [
+    index("team_memberships_user_idx").on(table.userId),
+    index("team_memberships_team_idx").on(table.teamId),
+    unique("team_memberships_user_team_unique").on(table.userId, table.teamId),
   ],
 );
 
@@ -111,8 +200,9 @@ export const priorityAreas = pgTable(
       .primaryKey()
       .default(sql`gen_random_uuid()`),
     groupId: varchar("group_id")
-      .notNull()
       .references(() => groups.id),
+    branchId: varchar("branch_id")
+      .references(() => branches.id),
     createdById: varchar("created_by_id")
       .notNull()
       .references(() => users.id),
@@ -123,6 +213,7 @@ export const priorityAreas = pgTable(
   },
   (table) => [
     index("priority_areas_group_idx").on(table.groupId),
+    index("priority_areas_branch_idx").on(table.branchId),
   ],
 );
 
@@ -156,6 +247,10 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Group = typeof groups.$inferSelect;
 export type GroupMembership = typeof groupMemberships.$inferSelect;
+export type Branch = typeof branches.$inferSelect;
+export type BranchMembership = typeof branchMemberships.$inferSelect;
+export type Team = typeof teams.$inferSelect;
+export type TeamMembership = typeof teamMemberships.$inferSelect;
 export type WalkingSession = typeof walkingSessions.$inferSelect;
 export type RoutePoint = typeof routePoints.$inferSelect;
 export type PriorityArea = typeof priorityAreas.$inferSelect;
