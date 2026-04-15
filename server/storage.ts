@@ -75,6 +75,7 @@ export interface IStorage {
   getMemberRole(userId: string, groupId: string): Promise<string | undefined>;
   setMemberRole(userId: string, groupId: string, role: string): Promise<void>;
   removeMember(userId: string, groupId: string): Promise<void>;
+  removeChurchMemberCascade(userId: string, churchId: string): Promise<void>;
   getGroupMembersWithStats(groupId: string): Promise<MemberStats[]>;
   getGroupStats(groupId: string): Promise<GroupStats>;
 
@@ -107,6 +108,8 @@ export interface IStorage {
   getTeamMembersWithStats(teamId: string): Promise<MemberStats[]>;
   getTeamStats(teamId: string): Promise<GroupStats>;
   getTeamMembers(teamId: string): Promise<string[]>;
+  getMyTeams(userId: string): Promise<Array<Team & { role: string; branchName: string; churchId: string }>>;
+  getMyAdminBranches(userId: string): Promise<Array<Branch & { role: string }>>;
 
   // Sessions
   createSession(userId: string): Promise<WalkingSession>;
@@ -264,6 +267,19 @@ export class DatabaseStorage implements IStorage {
     await db
       .delete(groupMemberships)
       .where(and(eq(groupMemberships.userId, userId), eq(groupMemberships.groupId, groupId)));
+  }
+
+  async removeChurchMemberCascade(userId: string, churchId: string): Promise<void> {
+    // Remove from all branches (which also cascades to teams within each branch)
+    const userBranchesInChurch = await db
+      .select()
+      .from(branchMemberships)
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.churchId, churchId)));
+    for (const bm of userBranchesInChurch) {
+      await this.leaveBranch(userId, bm.branchId);
+    }
+    // Remove from church (legacy group_memberships table)
+    await this.removeMember(userId, churchId);
   }
 
   async getGroupMembersWithStats(groupId: string): Promise<MemberStats[]> {
@@ -505,6 +521,32 @@ export class DatabaseStorage implements IStorage {
   async getTeamMembers(teamId: string): Promise<string[]> {
     const memberships = await db.select().from(teamMemberships).where(eq(teamMemberships.teamId, teamId));
     return memberships.map((m) => m.userId);
+  }
+
+  async getMyTeams(userId: string): Promise<Array<Team & { role: string; branchName: string; churchId: string }>> {
+    const memberships = await db.select().from(teamMemberships).where(eq(teamMemberships.userId, userId));
+    const result: Array<Team & { role: string; branchName: string; churchId: string }> = [];
+    for (const m of memberships) {
+      const team = await this.getTeamById(m.teamId);
+      if (!team) continue;
+      const branch = await this.getBranchById(team.branchId);
+      if (!branch) continue;
+      result.push({ ...team, role: m.role, branchName: branch.name, churchId: branch.churchId });
+    }
+    return result;
+  }
+
+  async getMyAdminBranches(userId: string): Promise<Array<Branch & { role: string }>> {
+    const memberships = await db
+      .select()
+      .from(branchMemberships)
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.role, "admin")));
+    const result: Array<Branch & { role: string }> = [];
+    for (const m of memberships) {
+      const branch = await this.getBranchById(m.branchId);
+      if (branch) result.push({ ...branch, role: m.role });
+    }
+    return result;
   }
 
   async getTeamMembersWithStats(teamId: string): Promise<MemberStats[]> {

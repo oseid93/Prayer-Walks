@@ -193,7 +193,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const churchId = req.params.id;
       const isMember = await storage.isGroupMember(req.session.userId!, churchId);
       if (!isMember) return res.status(404).json({ message: "Not a member" });
-      await storage.removeMember(req.session.userId!, churchId);
+      await storage.removeChurchMemberCascade(req.session.userId!, churchId);
       res.json({ success: true });
     } catch (error) {
       console.error("Leave church error:", error);
@@ -246,9 +246,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const myRole = await storage.getMemberRole(req.session.userId!, churchId);
       if (myRole !== "admin") return res.status(403).json({ message: "Admin access required" });
       if (targetUserId === req.session.userId) return res.status(400).json({ message: "Cannot remove yourself" });
-      await storage.removeMember(targetUserId, churchId);
+      await storage.removeChurchMemberCascade(targetUserId as string, churchId as string);
       res.json({ success: true });
     } catch (error) {
+      console.error("Remove church member error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -526,6 +527,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isMember) return res.status(403).json({ message: "Not a team member" });
       const points = await storage.getTeamRoutePoints(req.params.teamId);
       res.json(points);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // ─── User aggregate queries ──────────────────────────────────────────────
+
+  app.get("/api/my-teams", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const myTeams = await storage.getMyTeams(req.session.userId!);
+      res.json(myTeams);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/my-admin-branches", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const branches = await storage.getMyAdminBranches(req.session.userId!);
+      res.json(branches);
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }

@@ -95,14 +95,14 @@ export default function BranchDetailScreen() {
 
       {stats && (
         <View style={styles.statsRow}>
-          {[
-            { icon: "users", value: stats.memberCount, label: "Members", color: "#4CD964" },
-            { icon: "activity", value: stats.sessionCount, label: "Walks", color: "#33C3F0" },
-            { icon: "map-pin", value: fmtDist(stats.totalDistance), label: "Distance", color: "#FF9500" },
-            { icon: "clock", value: fmtDur(stats.totalDuration), label: "Time", color: "#FF3B30" },
-          ].map((s) => (
+          {([
+            { icon: "users" as const, value: stats.memberCount, label: "Members", color: "#4CD964" },
+            { icon: "activity" as const, value: stats.sessionCount, label: "Walks", color: "#33C3F0" },
+            { icon: "map-pin" as const, value: fmtDist(stats.totalDistance), label: "Distance", color: "#FF9500" },
+            { icon: "clock" as const, value: fmtDur(stats.totalDuration), label: "Time", color: "#FF3B30" },
+          ]).map((s) => (
             <View key={s.label} style={styles.statCard}>
-              <Feather name={s.icon as any} size={18} color={s.color} />
+              <Feather name={s.icon} size={18} color={s.color} />
               <Text style={styles.statValue}>{s.value}</Text>
               <Text style={styles.statLabel}>{s.label}</Text>
             </View>

@@ -44,11 +44,6 @@ interface PriorityArea {
   coordinates: Array<{ latitude: number; longitude: number }>;
 }
 
-interface GroupWithRole {
-  id: string;
-  name: string;
-  role: string;
-}
 
 const AREA_COLORS = [
   { value: "#FF9500", label: "Orange" },
@@ -87,7 +82,7 @@ export default function NativeMapScreen() {
   const { user } = useAuth();
   const mapRef = useRef<MapView>(null);
   const [viewMode, setViewMode] = useState<"personal" | "group">("personal");
-  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
+  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
   const isFollowingRef = useRef(false);
   const lastCameraUpdateRef = useRef(0);
@@ -99,7 +94,7 @@ export default function NativeMapScreen() {
   >([]);
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [areaName, setAreaName] = useState("");
-  const [saveGroupId, setSaveGroupId] = useState<string | null>(null);
+  const [saveBranchId, setSaveBranchId] = useState<string | null>(null);
   const [areaColor, setAreaColor] = useState(AREA_COLORS[0].value);
   const [showTutorial, setShowTutorial] = useState(false);
 
@@ -158,14 +153,21 @@ export default function NativeMapScreen() {
     enabled: !!user,
   });
 
-  const { data: groups } = useQuery<GroupWithRole[]>({
-    queryKey: ["/api/groups"],
+  type MyTeam = { id: string; name: string; role: string; branchName: string; churchId: string; branchId: string };
+  const { data: myTeams } = useQuery<MyTeam[]>({
+    queryKey: ["/api/my-teams"],
+    enabled: !!user,
+  });
+
+  type MyAdminBranch = { id: string; name: string; role: string; churchId: string };
+  const { data: adminBranches } = useQuery<MyAdminBranch[]>({
+    queryKey: ["/api/my-admin-branches"],
     enabled: !!user,
   });
 
   const { data: groupCoverage } = useQuery<RoutePointData[]>({
-    queryKey: ["/api/groups", selectedGroupId, "coverage"],
-    enabled: !!selectedGroupId && viewMode === "group",
+    queryKey: ["/api/teams", selectedTeamId, "coverage"],
+    enabled: !!selectedTeamId && viewMode === "group",
   });
 
   const { data: priorityAreas } = useQuery<PriorityArea[]>({
@@ -174,8 +176,7 @@ export default function NativeMapScreen() {
     refetchInterval: 30000,
   });
 
-  const adminGroups = groups?.filter((g) => g.role === "admin") ?? [];
-  const isAdminAny = adminGroups.length > 0;
+  const isAdminAny = (adminBranches?.length ?? 0) > 0;
 
   const currentTrackPoints = currentPoints.map((p) => ({
     latitude: p.latitude,
@@ -207,7 +208,7 @@ export default function NativeMapScreen() {
       setShowNoteModal(false);
       setNoteText("");
     },
-    onError: (err: any) => Alert.alert("Error", err.message || "Failed to save note"),
+    onError: (err: Error) => Alert.alert("Error", err.message || "Failed to save note"),
   });
 
   // Apply date filter to coverage points
@@ -316,7 +317,7 @@ export default function NativeMapScreen() {
   }, [centerOnLocation, currentLocation, state, heading]);
 
   const handleMapPress = useCallback(
-    (e: any) => {
+    (e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => {
       if (!drawMode) return;
       const { coordinate } = e.nativeEvent;
       setDrawVertices((prev) => [...prev, coordinate]);
@@ -325,16 +326,16 @@ export default function NativeMapScreen() {
   );
 
   const handleEnterDrawMode = useCallback(() => {
-    if (adminGroups.length === 1) {
-      setSaveGroupId(adminGroups[0].id);
+    if ((adminBranches?.length ?? 0) === 1) {
+      setSaveBranchId(adminBranches?.[0]?.id ?? null);
     } else {
-      setSaveGroupId(null);
+      setSaveBranchId(null);
     }
     setDrawVertices([]);
     setAreaName("");
     setAreaColor(AREA_COLORS[0].value);
     setDrawMode(true);
-  }, [adminGroups]);
+  }, [adminBranches]);
 
   const handleCancelDraw = useCallback(() => {
     setDrawMode(false);
@@ -376,39 +377,39 @@ export default function NativeMapScreen() {
 
   const saveMutation = useMutation({
     mutationFn: async ({
-      groupId,
+      branchId,
       name,
       coordinates,
       color,
     }: {
-      groupId: string;
+      branchId: string;
       name: string;
       coordinates: Array<{ latitude: number; longitude: number }>;
       color: string;
     }) => {
-      const url = new URL(`/api/groups/${groupId}/priority-areas`, getApiUrl());
+      const url = new URL(`/api/branches/${branchId}/priority-areas`, getApiUrl());
       const res = await apiRequest("POST", url.pathname, {
         name,
         coordinates,
         color,
       });
       if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.message || "Failed to save");
+        const errData = await res.json();
+        throw new Error((errData as { message?: string }).message || "Failed to save");
       }
       return res.json();
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/my-priority-areas"] });
       queryClient.invalidateQueries({
-        queryKey: [`/api/groups/${variables.groupId}/priority-areas`],
+        queryKey: [`/api/branches/${variables.branchId}/priority-areas`],
       });
       setShowSaveModal(false);
       setDrawMode(false);
       setDrawVertices([]);
       setAreaName("");
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       Alert.alert("Error", err.message || "Failed to save priority area");
     },
   });
@@ -418,15 +419,15 @@ export default function NativeMapScreen() {
       Alert.alert("Name required", "Please give this area a name");
       return;
     }
-    const gid = saveGroupId ?? adminGroups[0]?.id;
-    if (!gid) return;
+    const bid = saveBranchId ?? adminBranches?.[0]?.id;
+    if (!bid) return;
     saveMutation.mutate({
-      groupId: gid,
+      branchId: bid,
       name: areaName.trim(),
       coordinates: drawVertices,
       color: areaColor,
     });
-  }, [areaName, saveGroupId, adminGroups, drawVertices, areaColor, saveMutation]);
+  }, [areaName, saveBranchId, adminBranches, drawVertices, areaColor, saveMutation]);
 
   const initialRegion = {
     latitude: 51.5074,
@@ -562,8 +563,8 @@ export default function NativeMapScreen() {
             <Pressable
               onPress={() => {
                 setViewMode("group");
-                if (groups && groups.length > 0 && !selectedGroupId) {
-                  setSelectedGroupId(groups[0].id);
+                if (myTeams && myTeams.length > 0 && !selectedTeamId) {
+                  setSelectedTeamId(myTeams[0].id);
                 }
               }}
               style={[
@@ -848,22 +849,22 @@ export default function NativeMapScreen() {
               ))}
             </View>
 
-            {/* Group selector (if admin of multiple groups) */}
-            {adminGroups.length > 1 && (
+            {/* Branch selector (if admin of multiple branches) */}
+            {(adminBranches?.length ?? 0) > 1 && (
               <>
-                <Text style={styles.sectionLabel}>Group</Text>
+                <Text style={styles.sectionLabel}>Branch</Text>
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   style={styles.groupScroll}
                 >
-                  {adminGroups.map((g) => (
+                  {adminBranches?.map((b) => (
                     <Pressable
-                      key={g.id}
-                      onPress={() => setSaveGroupId(g.id)}
+                      key={b.id}
+                      onPress={() => setSaveBranchId(b.id)}
                       style={[
                         styles.groupChip,
-                        saveGroupId === g.id && {
+                        saveBranchId === b.id && {
                           backgroundColor: areaColor,
                           borderColor: areaColor,
                         },
@@ -872,10 +873,10 @@ export default function NativeMapScreen() {
                       <Text
                         style={[
                           styles.groupChipText,
-                          saveGroupId === g.id && { color: "#fff" },
+                          saveBranchId === b.id && { color: "#fff" },
                         ]}
                       >
-                        {g.name}
+                        {b.name}
                       </Text>
                     </Pressable>
                   ))}
