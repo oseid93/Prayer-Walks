@@ -3,20 +3,30 @@ import {
   type InsertUser,
   type Group,
   type GroupMembership,
+  type Branch,
+  type BranchMembership,
+  type Team,
+  type TeamMembership,
   type WalkingSession,
   type RoutePoint,
   type PriorityArea,
+  type SessionNote,
   type PasswordResetToken,
   users,
   groups,
   groupMemberships,
+  branches,
+  branchMemberships,
+  teams,
+  teamMemberships,
   walkingSessions,
   routePoints,
   priorityAreas,
+  sessionNotes,
   passwordResetTokens,
 } from "../shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, and, inArray, desc, asc, sum, count, gt } from "drizzle-orm";
+import { eq, and, inArray, desc, asc, sum, count, gt, or, isNull } from "drizzle-orm";
 import pg from "pg";
 
 if (!process.env.DATABASE_URL) {
@@ -54,6 +64,7 @@ export interface IStorage {
   getValidResetToken(token: string): Promise<PasswordResetToken | undefined>;
   markResetTokenUsed(tokenId: string): Promise<void>;
 
+  // Churches (groups)
   createGroup(name: string, userId: string): Promise<Group>;
   getGroupByCode(code: string): Promise<Group | undefined>;
   getGroupById(id: string): Promise<Group | undefined>;
@@ -67,40 +78,68 @@ export interface IStorage {
   getGroupMembersWithStats(groupId: string): Promise<MemberStats[]>;
   getGroupStats(groupId: string): Promise<GroupStats>;
 
+  // Branches
+  createBranch(churchId: string, name: string, userId: string): Promise<Branch>;
+  getBranchesByChurch(churchId: string): Promise<Branch[]>;
+  getBranchById(id: string): Promise<Branch | undefined>;
+  getUserBranchInChurch(userId: string, churchId: string): Promise<Branch | undefined>;
+  joinBranch(userId: string, branchId: string, churchId: string): Promise<BranchMembership>;
+  leaveBranch(userId: string, branchId: string): Promise<void>;
+  isBranchMember(userId: string, branchId: string): Promise<boolean>;
+  getBranchMemberRole(userId: string, branchId: string): Promise<string | undefined>;
+  setBranchMemberRole(userId: string, branchId: string, role: string): Promise<void>;
+  removeBranchMember(userId: string, branchId: string): Promise<void>;
+  getBranchMembersWithStats(branchId: string): Promise<MemberStats[]>;
+  getBranchStats(branchId: string): Promise<GroupStats>;
+  getBranchMembers(branchId: string): Promise<string[]>;
+
+  // Teams
+  createTeam(branchId: string, name: string, userId: string): Promise<Team>;
+  getTeamsByBranch(branchId: string): Promise<Team[]>;
+  getTeamById(id: string): Promise<Team | undefined>;
+  getUserTeamsInBranch(userId: string, branchId: string): Promise<Team[]>;
+  joinTeam(userId: string, teamId: string): Promise<TeamMembership>;
+  leaveTeam(userId: string, teamId: string): Promise<void>;
+  isTeamMember(userId: string, teamId: string): Promise<boolean>;
+  getTeamMemberRole(userId: string, teamId: string): Promise<string | undefined>;
+  setTeamMemberRole(userId: string, teamId: string, role: string): Promise<void>;
+  removeTeamMember(userId: string, teamId: string): Promise<void>;
+  getTeamMembersWithStats(teamId: string): Promise<MemberStats[]>;
+  getTeamStats(teamId: string): Promise<GroupStats>;
+  getTeamMembers(teamId: string): Promise<string[]>;
+
+  // Sessions
   createSession(userId: string): Promise<WalkingSession>;
-  endSession(
-    sessionId: string,
-    totalDistance: number,
-    totalDuration: number,
-  ): Promise<WalkingSession | undefined>;
+  endSession(sessionId: string, totalDistance: number, totalDuration: number): Promise<WalkingSession | undefined>;
   getUserSessions(userId: string): Promise<WalkingSession[]>;
   getSessionById(id: string): Promise<WalkingSession | undefined>;
+  deleteSession(sessionId: string, userId: string): Promise<boolean>;
 
   addRoutePoints(
     sessionId: string,
-    points: Array<{
-      latitude: number;
-      longitude: number;
-      timestamp: string | Date;
-      accuracy?: number | null;
-    }>,
+    points: Array<{ latitude: number; longitude: number; timestamp: string | Date; accuracy?: number | null }>,
   ): Promise<RoutePoint[]>;
   getSessionRoutePoints(sessionId: string): Promise<RoutePoint[]>;
   getUserRoutePoints(userId: string): Promise<RoutePoint[]>;
   getGroupRoutePoints(groupId: string): Promise<RoutePoint[]>;
+  getTeamRoutePoints(teamId: string): Promise<RoutePoint[]>;
 
+  // Priority areas
   getPriorityAreas(groupId: string): Promise<PriorityArea[]>;
+  getBranchPriorityAreas(branchId: string): Promise<PriorityArea[]>;
+  getUserPriorityAreas(userId: string): Promise<PriorityArea[]>;
   createPriorityArea(
-    groupId: string,
+    groupId: string | null,
+    branchId: string | null,
     createdById: string,
     name: string,
     coordinates: Array<{ latitude: number; longitude: number }>,
     color: string,
   ): Promise<PriorityArea>;
-  deletePriorityArea(areaId: string, groupId: string): Promise<void>;
+  deletePriorityArea(areaId: string, groupId?: string, branchId?: string): Promise<void>;
 }
 
-function generateGroupCode(): string {
+function generateCode(): string {
   const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let code = "";
   for (let i = 0; i < 6; i++) {
@@ -116,10 +155,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db
-      .select()
-      .from(users)
-      .where(eq(users.username, username));
+    const [user] = await db.select().from(users).where(eq(users.username, username));
     return user;
   }
 
@@ -147,10 +183,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createResetToken(userId: string, token: string, expiresAt: Date): Promise<PasswordResetToken> {
-    const [resetToken] = await db
-      .insert(passwordResetTokens)
-      .values({ userId, token, expiresAt })
-      .returning();
+    const [resetToken] = await db.insert(passwordResetTokens).values({ userId, token, expiresAt }).returning();
     return resetToken;
   }
 
@@ -158,39 +191,25 @@ export class DatabaseStorage implements IStorage {
     const [resetToken] = await db
       .select()
       .from(passwordResetTokens)
-      .where(
-        and(
-          eq(passwordResetTokens.token, token),
-          gt(passwordResetTokens.expiresAt, new Date()),
-        ),
-      );
+      .where(and(eq(passwordResetTokens.token, token), gt(passwordResetTokens.expiresAt, new Date())));
     return resetToken;
   }
 
   async markResetTokenUsed(tokenId: string): Promise<void> {
-    await db
-      .update(passwordResetTokens)
-      .set({ usedAt: new Date() })
-      .where(eq(passwordResetTokens.id, tokenId));
+    await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, tokenId));
   }
 
+  // ─── Churches (groups) ────────────────────────────────────────────────────
+
   async createGroup(name: string, userId: string): Promise<Group> {
-    const code = generateGroupCode();
-    const [group] = await db
-      .insert(groups)
-      .values({ name, code, createdById: userId })
-      .returning();
-    await db
-      .insert(groupMemberships)
-      .values({ userId, groupId: group.id, role: "admin" });
+    const code = generateCode();
+    const [group] = await db.insert(groups).values({ name, code, createdById: userId }).returning();
+    await db.insert(groupMemberships).values({ userId, groupId: group.id, role: "admin" });
     return group;
   }
 
   async getGroupByCode(code: string): Promise<Group | undefined> {
-    const [group] = await db
-      .select()
-      .from(groups)
-      .where(eq(groups.code, code.toUpperCase()));
+    const [group] = await db.select().from(groups).where(eq(groups.code, code.toUpperCase()));
     return group;
   }
 
@@ -200,25 +219,16 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserGroups(userId: string): Promise<Group[]> {
-    const memberships = await db
-      .select()
-      .from(groupMemberships)
-      .where(eq(groupMemberships.userId, userId));
+    const memberships = await db.select().from(groupMemberships).where(eq(groupMemberships.userId, userId));
     if (memberships.length === 0) return [];
     const groupIds = memberships.map((m) => m.groupId);
     return db.select().from(groups).where(inArray(groups.id, groupIds));
   }
 
-  async joinGroup(
-    userId: string,
-    groupId: string,
-  ): Promise<GroupMembership> {
+  async joinGroup(userId: string, groupId: string): Promise<GroupMembership> {
     const group = await this.getGroupById(groupId);
     const role = group?.createdById === userId ? "admin" : "participant";
-    const [membership] = await db
-      .insert(groupMemberships)
-      .values({ userId, groupId, role })
-      .returning();
+    const [membership] = await db.insert(groupMemberships).values({ userId, groupId, role }).returning();
     return membership;
   }
 
@@ -226,189 +236,337 @@ export class DatabaseStorage implements IStorage {
     const [membership] = await db
       .select()
       .from(groupMemberships)
-      .where(
-        and(
-          eq(groupMemberships.userId, userId),
-          eq(groupMemberships.groupId, groupId),
-        ),
-      );
+      .where(and(eq(groupMemberships.userId, userId), eq(groupMemberships.groupId, groupId)));
     return !!membership;
   }
 
   async getGroupMembers(groupId: string): Promise<string[]> {
-    const memberships = await db
-      .select()
-      .from(groupMemberships)
-      .where(eq(groupMemberships.groupId, groupId));
+    const memberships = await db.select().from(groupMemberships).where(eq(groupMemberships.groupId, groupId));
     return memberships.map((m) => m.userId);
   }
 
-  async getMemberRole(
-    userId: string,
-    groupId: string,
-  ): Promise<string | undefined> {
+  async getMemberRole(userId: string, groupId: string): Promise<string | undefined> {
     const [membership] = await db
       .select()
       .from(groupMemberships)
-      .where(
-        and(
-          eq(groupMemberships.userId, userId),
-          eq(groupMemberships.groupId, groupId),
-        ),
-      );
+      .where(and(eq(groupMemberships.userId, userId), eq(groupMemberships.groupId, groupId)));
     return membership?.role;
   }
 
-  async setMemberRole(
-    userId: string,
-    groupId: string,
-    role: string,
-  ): Promise<void> {
+  async setMemberRole(userId: string, groupId: string, role: string): Promise<void> {
     await db
       .update(groupMemberships)
       .set({ role })
-      .where(
-        and(
-          eq(groupMemberships.userId, userId),
-          eq(groupMemberships.groupId, groupId),
-        ),
-      );
+      .where(and(eq(groupMemberships.userId, userId), eq(groupMemberships.groupId, groupId)));
   }
 
   async removeMember(userId: string, groupId: string): Promise<void> {
     await db
       .delete(groupMemberships)
-      .where(
-        and(
-          eq(groupMemberships.userId, userId),
-          eq(groupMemberships.groupId, groupId),
-        ),
-      );
+      .where(and(eq(groupMemberships.userId, userId), eq(groupMemberships.groupId, groupId)));
   }
 
   async getGroupMembersWithStats(groupId: string): Promise<MemberStats[]> {
-    const memberships = await db
-      .select()
-      .from(groupMemberships)
-      .where(eq(groupMemberships.groupId, groupId));
-
+    const memberships = await db.select().from(groupMemberships).where(eq(groupMemberships.groupId, groupId));
     if (memberships.length === 0) return [];
-
     const results: MemberStats[] = [];
     for (const membership of memberships) {
-      const [user] = await db
-        .select()
-        .from(users)
-        .where(eq(users.id, membership.userId));
+      const [user] = await db.select().from(users).where(eq(users.id, membership.userId));
       if (!user) continue;
-
       const sessions = await db
         .select()
         .from(walkingSessions)
-        .where(
-          and(
-            eq(walkingSessions.userId, membership.userId),
-            eq(walkingSessions.isActive, false),
-          ),
-        );
-
-      const sessionCount = sessions.length;
-      const totalDistance = sessions.reduce(
-        (acc, s) => acc + (s.totalDistance || 0),
-        0,
-      );
-      const totalDuration = sessions.reduce(
-        (acc, s) => acc + (s.totalDuration || 0),
-        0,
-      );
-
+        .where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
       results.push({
         userId: membership.userId,
         displayName: user.displayName,
         role: membership.role,
-        sessionCount,
-        totalDistance,
-        totalDuration,
+        sessionCount: sessions.length,
+        totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
+        totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0),
       });
     }
-
     return results;
   }
 
   async getGroupStats(groupId: string): Promise<GroupStats> {
-    const memberships = await db
-      .select()
-      .from(groupMemberships)
-      .where(eq(groupMemberships.groupId, groupId));
-
+    const memberships = await db.select().from(groupMemberships).where(eq(groupMemberships.groupId, groupId));
     const memberCount = memberships.length;
-    if (memberCount === 0) {
-      return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
-    }
-
+    if (memberCount === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
     const memberIds = memberships.map((m) => m.userId);
     const sessions = await db
       .select()
       .from(walkingSessions)
-      .where(
-        and(
-          inArray(walkingSessions.userId, memberIds),
-          eq(walkingSessions.isActive, false),
-        ),
-      );
-
-    const sessionCount = sessions.length;
-    const totalDistance = sessions.reduce(
-      (acc, s) => acc + (s.totalDistance || 0),
-      0,
-    );
-    const totalDuration = sessions.reduce(
-      (acc, s) => acc + (s.totalDuration || 0),
-      0,
-    );
-
-    return { memberCount, sessionCount, totalDistance, totalDuration };
+      .where(and(inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)));
+    return {
+      memberCount,
+      sessionCount: sessions.length,
+      totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
+      totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0),
+    };
   }
 
-  async createSession(userId: string): Promise<WalkingSession> {
-    const [session] = await db
-      .insert(walkingSessions)
-      .values({ userId })
+  // ─── Branches ─────────────────────────────────────────────────────────────
+
+  async createBranch(churchId: string, name: string, userId: string): Promise<Branch> {
+    const [branch] = await db.insert(branches).values({ churchId, name, createdById: userId }).returning();
+    await db.insert(branchMemberships).values({ userId, branchId: branch.id, churchId, role: "admin" });
+    return branch;
+  }
+
+  async getBranchesByChurch(churchId: string): Promise<Branch[]> {
+    return db.select().from(branches).where(eq(branches.churchId, churchId)).orderBy(asc(branches.createdAt));
+  }
+
+  async getBranchById(id: string): Promise<Branch | undefined> {
+    const [branch] = await db.select().from(branches).where(eq(branches.id, id));
+    return branch;
+  }
+
+  async getUserBranchInChurch(userId: string, churchId: string): Promise<Branch | undefined> {
+    const [membership] = await db
+      .select()
+      .from(branchMemberships)
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.churchId, churchId)));
+    if (!membership) return undefined;
+    return this.getBranchById(membership.branchId);
+  }
+
+  async joinBranch(userId: string, branchId: string, churchId: string): Promise<BranchMembership> {
+    const [membership] = await db
+      .insert(branchMemberships)
+      .values({ userId, branchId, churchId, role: "participant" })
+      .onConflictDoNothing()
       .returning();
+    if (!membership) {
+      const [existing] = await db
+        .select()
+        .from(branchMemberships)
+        .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.churchId, churchId)));
+      return existing;
+    }
+    return membership;
+  }
+
+  async leaveBranch(userId: string, branchId: string): Promise<void> {
+    // Also remove all team memberships within this branch
+    const branchTeams = await db.select().from(teams).where(eq(teams.branchId, branchId));
+    const teamIds = branchTeams.map((t) => t.id);
+    if (teamIds.length > 0) {
+      for (const teamId of teamIds) {
+        await db.delete(teamMemberships).where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+      }
+    }
+    await db.delete(branchMemberships).where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
+  }
+
+  async isBranchMember(userId: string, branchId: string): Promise<boolean> {
+    const [m] = await db
+      .select()
+      .from(branchMemberships)
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
+    return !!m;
+  }
+
+  async getBranchMemberRole(userId: string, branchId: string): Promise<string | undefined> {
+    const [m] = await db
+      .select()
+      .from(branchMemberships)
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
+    return m?.role;
+  }
+
+  async setBranchMemberRole(userId: string, branchId: string, role: string): Promise<void> {
+    await db
+      .update(branchMemberships)
+      .set({ role })
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
+  }
+
+  async removeBranchMember(userId: string, branchId: string): Promise<void> {
+    await this.leaveBranch(userId, branchId);
+  }
+
+  async getBranchMembers(branchId: string): Promise<string[]> {
+    const memberships = await db.select().from(branchMemberships).where(eq(branchMemberships.branchId, branchId));
+    return memberships.map((m) => m.userId);
+  }
+
+  async getBranchMembersWithStats(branchId: string): Promise<MemberStats[]> {
+    const memberships = await db.select().from(branchMemberships).where(eq(branchMemberships.branchId, branchId));
+    if (memberships.length === 0) return [];
+    const results: MemberStats[] = [];
+    for (const membership of memberships) {
+      const [user] = await db.select().from(users).where(eq(users.id, membership.userId));
+      if (!user) continue;
+      const sessions = await db
+        .select()
+        .from(walkingSessions)
+        .where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
+      results.push({
+        userId: membership.userId,
+        displayName: user.displayName,
+        role: membership.role,
+        sessionCount: sessions.length,
+        totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
+        totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0),
+      });
+    }
+    return results;
+  }
+
+  async getBranchStats(branchId: string): Promise<GroupStats> {
+    const memberIds = await this.getBranchMembers(branchId);
+    if (memberIds.length === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
+    const sessions = await db
+      .select()
+      .from(walkingSessions)
+      .where(and(inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)));
+    return {
+      memberCount: memberIds.length,
+      sessionCount: sessions.length,
+      totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
+      totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0),
+    };
+  }
+
+  // ─── Teams ────────────────────────────────────────────────────────────────
+
+  async createTeam(branchId: string, name: string, userId: string): Promise<Team> {
+    const [team] = await db.insert(teams).values({ branchId, name, createdById: userId }).returning();
+    await db.insert(teamMemberships).values({ userId, teamId: team.id, role: "admin" });
+    return team;
+  }
+
+  async getTeamsByBranch(branchId: string): Promise<Team[]> {
+    return db.select().from(teams).where(eq(teams.branchId, branchId)).orderBy(asc(teams.createdAt));
+  }
+
+  async getTeamById(id: string): Promise<Team | undefined> {
+    const [team] = await db.select().from(teams).where(eq(teams.id, id));
+    return team;
+  }
+
+  async getUserTeamsInBranch(userId: string, branchId: string): Promise<Team[]> {
+    const memberships = await db.select().from(teamMemberships).where(eq(teamMemberships.userId, userId));
+    if (memberships.length === 0) return [];
+    const teamIds = memberships.map((m) => m.teamId);
+    const allTeams = await db.select().from(teams).where(inArray(teams.id, teamIds));
+    return allTeams.filter((t) => t.branchId === branchId);
+  }
+
+  async joinTeam(userId: string, teamId: string): Promise<TeamMembership> {
+    const [membership] = await db
+      .insert(teamMemberships)
+      .values({ userId, teamId, role: "participant" })
+      .onConflictDoNothing()
+      .returning();
+    if (!membership) {
+      const [existing] = await db
+        .select()
+        .from(teamMemberships)
+        .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+      return existing;
+    }
+    return membership;
+  }
+
+  async leaveTeam(userId: string, teamId: string): Promise<void> {
+    await db.delete(teamMemberships).where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+  }
+
+  async isTeamMember(userId: string, teamId: string): Promise<boolean> {
+    const [m] = await db
+      .select()
+      .from(teamMemberships)
+      .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+    return !!m;
+  }
+
+  async getTeamMemberRole(userId: string, teamId: string): Promise<string | undefined> {
+    const [m] = await db
+      .select()
+      .from(teamMemberships)
+      .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+    return m?.role;
+  }
+
+  async setTeamMemberRole(userId: string, teamId: string, role: string): Promise<void> {
+    await db
+      .update(teamMemberships)
+      .set({ role })
+      .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+  }
+
+  async removeTeamMember(userId: string, teamId: string): Promise<void> {
+    await this.leaveTeam(userId, teamId);
+  }
+
+  async getTeamMembers(teamId: string): Promise<string[]> {
+    const memberships = await db.select().from(teamMemberships).where(eq(teamMemberships.teamId, teamId));
+    return memberships.map((m) => m.userId);
+  }
+
+  async getTeamMembersWithStats(teamId: string): Promise<MemberStats[]> {
+    const memberships = await db.select().from(teamMemberships).where(eq(teamMemberships.teamId, teamId));
+    if (memberships.length === 0) return [];
+    const results: MemberStats[] = [];
+    for (const membership of memberships) {
+      const [user] = await db.select().from(users).where(eq(users.id, membership.userId));
+      if (!user) continue;
+      const sessions = await db
+        .select()
+        .from(walkingSessions)
+        .where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
+      results.push({
+        userId: membership.userId,
+        displayName: user.displayName,
+        role: membership.role,
+        sessionCount: sessions.length,
+        totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
+        totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0),
+      });
+    }
+    return results;
+  }
+
+  async getTeamStats(teamId: string): Promise<GroupStats> {
+    const memberIds = await this.getTeamMembers(teamId);
+    if (memberIds.length === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
+    const sessions = await db
+      .select()
+      .from(walkingSessions)
+      .where(and(inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)));
+    return {
+      memberCount: memberIds.length,
+      sessionCount: sessions.length,
+      totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
+      totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0),
+    };
+  }
+
+  // ─── Sessions ─────────────────────────────────────────────────────────────
+
+  async createSession(userId: string): Promise<WalkingSession> {
+    const [session] = await db.insert(walkingSessions).values({ userId }).returning();
     return session;
   }
 
-  async endSession(
-    sessionId: string,
-    totalDistance: number,
-    totalDuration: number,
-  ): Promise<WalkingSession | undefined> {
+  async endSession(sessionId: string, totalDistance: number, totalDuration: number): Promise<WalkingSession | undefined> {
     const [session] = await db
       .update(walkingSessions)
-      .set({
-        endedAt: new Date(),
-        totalDistance,
-        totalDuration,
-        isActive: false,
-      })
+      .set({ endedAt: new Date(), totalDistance, totalDuration, isActive: false })
       .where(eq(walkingSessions.id, sessionId))
       .returning();
     return session;
   }
 
   async getUserSessions(userId: string): Promise<WalkingSession[]> {
-    return db
-      .select()
-      .from(walkingSessions)
-      .where(eq(walkingSessions.userId, userId))
-      .orderBy(desc(walkingSessions.startedAt));
+    return db.select().from(walkingSessions).where(eq(walkingSessions.userId, userId)).orderBy(desc(walkingSessions.startedAt));
   }
 
   async getSessionById(id: string): Promise<WalkingSession | undefined> {
-    const [session] = await db
-      .select()
-      .from(walkingSessions)
-      .where(eq(walkingSessions.id, id));
+    const [session] = await db.select().from(walkingSessions).where(eq(walkingSessions.id, id));
     return session;
   }
 
@@ -425,12 +583,7 @@ export class DatabaseStorage implements IStorage {
 
   async addRoutePoints(
     sessionId: string,
-    points: Array<{
-      latitude: number;
-      longitude: number;
-      timestamp: string | Date;
-      accuracy?: number | null;
-    }>,
+    points: Array<{ latitude: number; longitude: number; timestamp: string | Date; accuracy?: number | null }>,
   ): Promise<RoutePoint[]> {
     if (points.length === 0) return [];
     const values = points.map((p) => ({
@@ -444,53 +597,74 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getSessionRoutePoints(sessionId: string): Promise<RoutePoint[]> {
-    return db
-      .select()
-      .from(routePoints)
-      .where(eq(routePoints.sessionId, sessionId))
-      .orderBy(asc(routePoints.timestamp));
+    return db.select().from(routePoints).where(eq(routePoints.sessionId, sessionId)).orderBy(asc(routePoints.timestamp));
   }
 
   async getUserRoutePoints(userId: string): Promise<RoutePoint[]> {
-    const sessions = await db
-      .select()
-      .from(walkingSessions)
-      .where(eq(walkingSessions.userId, userId));
+    const sessions = await db.select().from(walkingSessions).where(eq(walkingSessions.userId, userId));
     if (sessions.length === 0) return [];
     const sessionIds = sessions.map((s) => s.id);
-    return db
-      .select()
-      .from(routePoints)
-      .where(inArray(routePoints.sessionId, sessionIds))
-      .orderBy(asc(routePoints.timestamp));
+    return db.select().from(routePoints).where(inArray(routePoints.sessionId, sessionIds)).orderBy(asc(routePoints.timestamp));
   }
 
   async getGroupRoutePoints(groupId: string): Promise<RoutePoint[]> {
     const memberIds = await this.getGroupMembers(groupId);
     if (memberIds.length === 0) return [];
-    const sessions = await db
-      .select()
-      .from(walkingSessions)
-      .where(inArray(walkingSessions.userId, memberIds));
+    const sessions = await db.select().from(walkingSessions).where(inArray(walkingSessions.userId, memberIds));
     if (sessions.length === 0) return [];
     const sessionIds = sessions.map((s) => s.id);
-    return db
-      .select()
-      .from(routePoints)
-      .where(inArray(routePoints.sessionId, sessionIds))
-      .orderBy(asc(routePoints.timestamp));
+    return db.select().from(routePoints).where(inArray(routePoints.sessionId, sessionIds)).orderBy(asc(routePoints.timestamp));
   }
 
+  async getTeamRoutePoints(teamId: string): Promise<RoutePoint[]> {
+    const memberIds = await this.getTeamMembers(teamId);
+    if (memberIds.length === 0) return [];
+    const sessions = await db.select().from(walkingSessions).where(inArray(walkingSessions.userId, memberIds));
+    if (sessions.length === 0) return [];
+    const sessionIds = sessions.map((s) => s.id);
+    return db.select().from(routePoints).where(inArray(routePoints.sessionId, sessionIds)).orderBy(asc(routePoints.timestamp));
+  }
+
+  // ─── Priority Areas ───────────────────────────────────────────────────────
+
   async getPriorityAreas(groupId: string): Promise<PriorityArea[]> {
-    return db
-      .select()
-      .from(priorityAreas)
-      .where(eq(priorityAreas.groupId, groupId))
-      .orderBy(asc(priorityAreas.createdAt));
+    return db.select().from(priorityAreas).where(eq(priorityAreas.groupId, groupId)).orderBy(asc(priorityAreas.createdAt));
+  }
+
+  async getBranchPriorityAreas(branchId: string): Promise<PriorityArea[]> {
+    return db.select().from(priorityAreas).where(eq(priorityAreas.branchId, branchId)).orderBy(asc(priorityAreas.createdAt));
+  }
+
+  async getUserPriorityAreas(userId: string): Promise<PriorityArea[]> {
+    const userGroups = await this.getUserGroups(userId);
+    const userBranchMemberships = await db.select().from(branchMemberships).where(eq(branchMemberships.userId, userId));
+
+    const areas: PriorityArea[] = [];
+
+    // Legacy: church-level priority areas
+    for (const g of userGroups) {
+      const groupAreas = await db.select().from(priorityAreas).where(eq(priorityAreas.groupId, g.id));
+      areas.push(...groupAreas);
+    }
+
+    // New: branch-level priority areas
+    for (const bm of userBranchMemberships) {
+      const branchAreas = await db.select().from(priorityAreas).where(eq(priorityAreas.branchId, bm.branchId));
+      areas.push(...branchAreas);
+    }
+
+    // Deduplicate by id
+    const seen = new Set<string>();
+    return areas.filter((a) => {
+      if (seen.has(a.id)) return false;
+      seen.add(a.id);
+      return true;
+    });
   }
 
   async createPriorityArea(
-    groupId: string,
+    groupId: string | null,
+    branchId: string | null,
     createdById: string,
     name: string,
     coordinates: Array<{ latitude: number; longitude: number }>,
@@ -498,26 +672,46 @@ export class DatabaseStorage implements IStorage {
   ): Promise<PriorityArea> {
     const [area] = await db
       .insert(priorityAreas)
-      .values({
-        groupId,
-        createdById,
-        name,
-        coordinates: JSON.stringify(coordinates),
-        color,
-      })
+      .values({ groupId, branchId, createdById, name, coordinates: JSON.stringify(coordinates), color })
       .returning();
     return area;
   }
 
-  async deletePriorityArea(areaId: string, groupId: string): Promise<void> {
-    await db
-      .delete(priorityAreas)
-      .where(
-        and(
-          eq(priorityAreas.id, areaId),
-          eq(priorityAreas.groupId, groupId),
-        ),
-      );
+  async deletePriorityArea(areaId: string, groupId?: string, branchId?: string): Promise<void> {
+    if (branchId) {
+      await db.delete(priorityAreas).where(and(eq(priorityAreas.id, areaId), eq(priorityAreas.branchId, branchId)));
+    } else if (groupId) {
+      await db.delete(priorityAreas).where(and(eq(priorityAreas.id, areaId), eq(priorityAreas.groupId, groupId)));
+    } else {
+      await db.delete(priorityAreas).where(eq(priorityAreas.id, areaId));
+    }
+  }
+
+  // ─── Session Notes ────────────────────────────────────────────────────────
+
+  async createSessionNote(
+    sessionId: string,
+    userId: string,
+    text: string,
+    latitude: number | null,
+    longitude: number | null,
+  ): Promise<SessionNote> {
+    const [note] = await db
+      .insert(sessionNotes)
+      .values({ sessionId, userId, text, latitude, longitude })
+      .returning();
+    return note;
+  }
+
+  async getSessionNotes(sessionId: string): Promise<SessionNote[]> {
+    return db.select().from(sessionNotes).where(eq(sessionNotes.sessionId, sessionId)).orderBy(asc(sessionNotes.createdAt));
+  }
+
+  async deleteSessionNote(noteId: string, userId: string): Promise<boolean> {
+    const [note] = await db.select().from(sessionNotes).where(eq(sessionNotes.id, noteId));
+    if (!note || note.userId !== userId) return false;
+    await db.delete(sessionNotes).where(eq(sessionNotes.id, noteId));
+    return true;
   }
 }
 

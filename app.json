@@ -17,7 +17,10 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.prayerwalks.app",
       "infoPlist": {
-        "LSApplicationQueriesSchemes": ["whatsapp"]
+        "LSApplicationQueriesSchemes": ["whatsapp"],
+        "UIBackgroundModes": ["location"],
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Prayer Walks needs your location to track your walks. Select 'Always' so walks are recorded even when your screen locks.",
+        "NSLocationAlwaysUsageDescription": "Prayer Walks needs 'Always' location access so your walks are tracked even when the screen is locked."
       }
     },
     "android": {

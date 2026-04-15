@@ -448,26 +448,27 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     locationSubRef.current = sub;
 
     // Native: start OS-level background location task so tracking
-    // continues when the screen locks or the app is backgrounded
+    // continues when the screen locks or the app is backgrounded.
+    // Note: always attempt startLocationUpdatesAsync directly — the
+    // isTaskRegisteredAsync guard was unreliable and could silently skip
+    // this call. The defineTask() in location-task.ts makes the task
+    // available; startLocationUpdatesAsync is what registers it with iOS.
     try {
-      const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
-      if (isRegistered) {
-        await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
-          accuracy: Location.Accuracy.BestForNavigation,
-          timeInterval: 3000,
-          distanceInterval: 3,
-          showsBackgroundLocationIndicator: true,
-          foregroundService: {
-            notificationTitle: "Prayer Walk in Progress",
-            notificationBody: "Recording your walk in the background.",
-            notificationColor: "#33C3F0",
-          },
-          pausesUpdatesAutomatically: false,
-          activityType: Location.ActivityType.Fitness,
-          deferredUpdatesInterval: 0,
-          deferredUpdatesDistance: 0,
-        });
-      }
+      await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
+        accuracy: Location.Accuracy.BestForNavigation,
+        timeInterval: 2000,
+        distanceInterval: 0,
+        showsBackgroundLocationIndicator: true,
+        foregroundService: {
+          notificationTitle: "Prayer Walk in Progress",
+          notificationBody: "Recording your walk in the background.",
+          notificationColor: "#33C3F0",
+        },
+        pausesUpdatesAutomatically: false,
+        activityType: Location.ActivityType.Fitness,
+        deferredUpdatesInterval: 0,
+        deferredUpdatesDistance: 0,
+      });
     } catch {
       // startLocationUpdatesAsync not available in Expo Go — foreground-only tracking still works
     }

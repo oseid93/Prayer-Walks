@@ -94,6 +94,23 @@ export async function runMigrations(): Promise<void> {
       // Column may already be nullable
     });
 
+    // session_notes table (prayer notes during walks, pinned to GPS location)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS session_notes (
+        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+        session_id VARCHAR NOT NULL REFERENCES walking_sessions(id),
+        user_id VARCHAR NOT NULL REFERENCES users(id),
+        text TEXT NOT NULL,
+        latitude REAL,
+        longitude REAL,
+        created_at TIMESTAMP DEFAULT NOW() NOT NULL
+      )
+    `);
+
+    await client.query(`
+      CREATE INDEX IF NOT EXISTS session_notes_session_idx ON session_notes(session_id)
+    `);
+
     await client.query("COMMIT");
     console.log("Migrations completed successfully");
   } catch (err) {

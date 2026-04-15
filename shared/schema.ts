@@ -217,6 +217,29 @@ export const priorityAreas = pgTable(
   ],
 );
 
+// Prayer notes pinned to GPS location during a walk
+export const sessionNotes = pgTable(
+  "session_notes",
+  {
+    id: varchar("id")
+      .primaryKey()
+      .default(sql`gen_random_uuid()`),
+    sessionId: varchar("session_id")
+      .notNull()
+      .references(() => walkingSessions.id),
+    userId: varchar("user_id")
+      .notNull()
+      .references(() => users.id),
+    text: text("text").notNull(),
+    latitude: real("latitude"),
+    longitude: real("longitude"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (table) => [index("session_notes_session_idx").on(table.sessionId)],
+);
+
+export type SessionNote = typeof sessionNotes.$inferSelect;
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,

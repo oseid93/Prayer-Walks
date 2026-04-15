@@ -82,6 +82,7 @@ export default function NativeMapScreen() {
     centerOnLocation,
     completedSession,
     clearCompletedSession,
+    sessionId,
   } = useTracking();
   const { user } = useAuth();
   const mapRef = useRef<MapView>(null);
@@ -101,6 +102,16 @@ export default function NativeMapScreen() {
   const [saveGroupId, setSaveGroupId] = useState<string | null>(null);
   const [areaColor, setAreaColor] = useState(AREA_COLORS[0].value);
   const [showTutorial, setShowTutorial] = useState(false);
+
+  // Prayer note state
+  const [showNoteModal, setShowNoteModal] = useState(false);
+  const [noteText, setNoteText] = useState("");
+
+  // Permission banner state
+  const [permStatus, setPermStatus] = useState<string>("granted");
+
+  // Date range filter
+  const [dateFilter, setDateFilter] = useState<"week" | "month" | "all">("all");
 
   useEffect(() => {
     let cancelled = false;
@@ -166,17 +177,49 @@ export default function NativeMapScreen() {
   const adminGroups = groups?.filter((g) => g.role === "admin") ?? [];
   const isAdminAny = adminGroups.length > 0;
 
-  const coverageData =
-    viewMode === "group" && groupCoverage
-      ? groupCoverage
-      : coveragePoints || [];
-
-  const coveragePolylines = buildCoveragePolylines(coverageData);
-
   const currentTrackPoints = currentPoints.map((p) => ({
     latitude: p.latitude,
     longitude: p.longitude,
   }));
+
+  // Check location permission level (for banner)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { status } = await Location.getBackgroundPermissionsAsync().catch(() => ({ status: "not-determined" }));
+      if (!cancelled) setPermStatus(status);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const addNoteMutation = useMutation({
+    mutationFn: async (text: string) => {
+      if (!sessionId) throw new Error("No active session");
+      const res = await apiRequest("POST", `/api/sessions/${sessionId}/notes`, {
+        text,
+        latitude: currentLocation?.latitude ?? null,
+        longitude: currentLocation?.longitude ?? null,
+      });
+      if (!res.ok) throw new Error("Failed to save note");
+      return res.json();
+    },
+    onSuccess: () => {
+      setShowNoteModal(false);
+      setNoteText("");
+    },
+    onError: (err: any) => Alert.alert("Error", err.message || "Failed to save note"),
+  });
+
+  // Apply date filter to coverage points
+  const filteredCoveragePoints = React.useMemo(() => {
+    const rawData = viewMode === "group" && groupCoverage ? groupCoverage : coveragePoints || [];
+    if (dateFilter === "all") return rawData;
+    const now = Date.now();
+    const cutoff = dateFilter === "week" ? now - 7 * 24 * 60 * 60 * 1000 : now - 30 * 24 * 60 * 60 * 1000;
+    return rawData.filter((p: RoutePointData) => p.timestamp && new Date(p.timestamp).getTime() >= cutoff);
+  }, [coveragePoints, groupCoverage, viewMode, dateFilter]);
+
+  const coveragePolylines = buildCoveragePolylines(filteredCoveragePoints);
 
   useEffect(() => {
     if (currentLocation && mapRef.current && !initialLocationSet) {
@@ -546,6 +589,35 @@ export default function NativeMapScreen() {
         </View>
       )}
 
+      {/* Location permission banner */}
+      {permStatus !== "granted" && state === "idle" && !drawMode && (
+        <Pressable
+          onPress={() => Linking.openSettings()}
+          style={[styles.permBanner, { top: insets.top + 60 }]}
+        >
+          <Feather name="alert-triangle" size={14} color="#FFCC00" />
+          <Text style={styles.permBannerText}>Enable "Always" location in Settings for better tracking</Text>
+          <Feather name="chevron-right" size={14} color="#FFCC00" />
+        </Pressable>
+      )}
+
+      {/* Date range filter pills — shown when idle and not drawing */}
+      {state === "idle" && !drawMode && (
+        <View style={[styles.dateFilterRow, { top: insets.top + (permStatus !== "granted" ? 100 : 60) }]}>
+          {(["week", "month", "all"] as const).map((f) => (
+            <Pressable
+              key={f}
+              onPress={() => setDateFilter(f)}
+              style={[styles.dateFilterPill, dateFilter === f && styles.dateFilterPillActive]}
+            >
+              <Text style={[styles.dateFilterText, dateFilter === f && styles.dateFilterTextActive]}>
+                {f === "week" ? "This Week" : f === "month" ? "This Month" : "All Time"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       {/* Session stats overlay */}
       {state !== "idle" && (
         <View style={[styles.statsOverlay, { top: insets.top + 60 }]}>
@@ -652,6 +724,20 @@ export default function NativeMapScreen() {
               </Pressable>
             ) : null}
 
+            {/* Note button: shown when tracking or paused */}
+            {(state === "tracking" || state === "paused") && (
+              <Pressable
+                onPress={() => { setNoteText(""); setShowNoteModal(true); }}
+                style={({ pressed }) => [
+                  styles.secondaryButton,
+                  { opacity: pressed ? 0.8 : 1 },
+                ]}
+                testID="add-note-button"
+              >
+                <Feather name="feather" size={20} color="#FF9500" />
+              </Pressable>
+            )}
+
             {/* Right: green play FAB when idle, red stop (same size as pause) when active */}
             {state === "idle" ? (
               <Pressable
@@ -679,6 +765,40 @@ export default function NativeMapScreen() {
           </View>
         )}
       </View>
+
+      {/* Prayer Note Modal */}
+      <Modal visible={showNoteModal} transparent animationType="slide" onRequestClose={() => setShowNoteModal(false)}>
+        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Prayer Note</Text>
+              <Pressable onPress={() => setShowNoteModal(false)}>
+                <Feather name="x" size={22} color="#9CA3AF" />
+              </Pressable>
+            </View>
+            <TextInput
+              style={[styles.modalInput, { minHeight: 80, textAlignVertical: "top", paddingTop: 14 }]}
+              placeholder="What are you praying for here?"
+              placeholderTextColor="#6B7280"
+              value={noteText}
+              onChangeText={setNoteText}
+              multiline
+              autoFocus
+            />
+            <Pressable
+              onPress={() => { if (!noteText.trim() || !sessionId) return; addNoteMutation.mutate(noteText.trim()); }}
+              disabled={addNoteMutation.isPending || !noteText.trim() || !sessionId}
+              style={[styles.saveButton, { backgroundColor: "#FF9500", opacity: !noteText.trim() ? 0.5 : 1 }]}
+            >
+              {addNoteMutation.isPending ? (
+                <Text style={styles.saveButtonText}>Saving...</Text>
+              ) : (
+                <Text style={styles.saveButtonText}>Save Note</Text>
+              )}
+            </Pressable>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
 
       {/* Save Zone Modal */}
       <Modal
@@ -1234,5 +1354,53 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#6B7280",
     fontFamily: "Inter_400Regular",
+  },
+  permBanner: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(255,204,0,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(255,204,0,0.3)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  permBannerText: {
+    flex: 1,
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    color: "#FFCC00",
+  },
+  dateFilterRow: {
+    position: "absolute",
+    left: 16,
+    right: 16,
+    flexDirection: "row",
+    gap: 8,
+    justifyContent: "center",
+  },
+  dateFilterPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    backgroundColor: "rgba(15,15,35,0.85)",
+    borderWidth: 1,
+    borderColor: "#2D2D44",
+  },
+  dateFilterPillActive: {
+    backgroundColor: "#33C3F0",
+    borderColor: "#33C3F0",
+  },
+  dateFilterText: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    color: "#9CA3AF",
+  },
+  dateFilterTextActive: {
+    color: "#0F0F23",
   },
 });
