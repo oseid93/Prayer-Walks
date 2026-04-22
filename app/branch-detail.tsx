@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { StyleSheet, View, Text, Pressable, Platform, ActivityIndicator, Alert, ScrollView } from "react-native";
+import { StyleSheet, View, Text, Pressable, Platform, ActivityIndicator, Alert, ScrollView, Modal, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -68,6 +68,24 @@ export default function BranchDetailScreen() {
     },
     onError: () => Alert.alert("Error", "Failed to remove member"),
   });
+
+  const [showTeamModal, setShowTeamModal] = useState(false);
+  const [teamName, setTeamName] = useState("");
+  const createTeamMutation = useMutation({
+    mutationFn: async (name: string) => apiRequest("POST", `/api/branches/${id}/teams`, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/branches/${id}/teams`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-teams"] });
+      setShowTeamModal(false);
+      setTeamName("");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message || "Failed to create team"),
+  });
+  const submitTeam = () => {
+    const n = teamName.trim();
+    if (!n) { Alert.alert("Required", "Please enter a team name"); return; }
+    createTeamMutation.mutate(n);
+  };
 
   const handleZoneTap = useCallback((area: PriorityArea) => {
     if (!area.coordinates.length) return;
@@ -207,7 +225,19 @@ export default function BranchDetailScreen() {
           </Pressable>
         ))}
         {/* Teams section */}
-        <Text style={[styles.sectionTitle, { marginTop: 20, marginBottom: 12 }]}>Teams</Text>
+        <View style={[styles.sectionRow, { marginTop: 20, marginBottom: 12 }]}>
+          <Text style={styles.sectionTitle}>Teams</Text>
+          {isAdmin && (
+            <Pressable
+              testID="create-team-btn"
+              onPress={() => setShowTeamModal(true)}
+              style={({ pressed }) => [styles.createBtn, { opacity: pressed ? 0.75 : 1 }]}
+            >
+              <Feather name="plus" size={14} color="#0F0F23" />
+              <Text style={styles.createBtnText}>Create Team</Text>
+            </Pressable>
+          )}
+        </View>
         {!teams || teams.length === 0 ? (
           <View style={styles.zonesEmpty}>
             <Feather name="users" size={24} color="#4B5563" />
@@ -232,6 +262,40 @@ export default function BranchDetailScreen() {
 
         <View style={{ height: 80 }} />
       </ScrollView>
+
+      <Modal visible={showTeamModal} transparent animationType="fade" onRequestClose={() => setShowTeamModal(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Create Team</Text>
+            <TextInput
+              testID="team-name-input"
+              value={teamName}
+              onChangeText={setTeamName}
+              placeholder="Team name"
+              placeholderTextColor="#6B7280"
+              style={styles.modalInput}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={submitTeam}
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => { setShowTeamModal(false); setTeamName(""); }} style={[styles.modalBtn, styles.modalBtnGhost]}>
+                <Text style={styles.modalBtnGhostText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                testID="team-submit-btn"
+                onPress={submitTeam}
+                disabled={createTeamMutation.isPending}
+                style={[styles.modalBtn, styles.modalBtnPrimary, createTeamMutation.isPending && { opacity: 0.6 }]}
+              >
+                {createTeamMutation.isPending
+                  ? <ActivityIndicator color="#0F0F23" />
+                  : <Text style={styles.modalBtnPrimaryText}>Create</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -279,4 +343,16 @@ const styles = StyleSheet.create({
   zonePoints: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#6B7280", marginTop: 2 },
   teamCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#1A1A35", borderRadius: 12, padding: 14, marginBottom: 8, gap: 12 },
   teamIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(255,149,0,0.15)", alignItems: "center", justifyContent: "center" },
+  createBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#4CD964", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16 },
+  createBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#0F0F23" },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 24 },
+  modalCard: { width: "100%", maxWidth: 400, backgroundColor: "#1A1A35", borderRadius: 16, padding: 20 },
+  modalTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: "#FFFFFF", marginBottom: 14 },
+  modalInput: { backgroundColor: "#0F0F23", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, color: "#FFFFFF", fontFamily: "Inter_400Regular", fontSize: 15, marginBottom: 16 },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
+  modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, minWidth: 80, alignItems: "center" },
+  modalBtnGhost: { backgroundColor: "transparent" },
+  modalBtnGhostText: { color: "#9CA3AF", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  modalBtnPrimary: { backgroundColor: "#4CD964" },
+  modalBtnPrimaryText: { color: "#0F0F23", fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });

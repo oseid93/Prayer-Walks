@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { StyleSheet, View, Text, Pressable, Modal, Platform, ActivityIndicator, Alert, ScrollView, Share } from "react-native";
+import { StyleSheet, View, Text, Pressable, Modal, Platform, ActivityIndicator, Alert, ScrollView, Share, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Feather } from "@expo/vector-icons";
@@ -63,6 +63,23 @@ export default function ChurchDetailScreen() {
     },
     onError: () => Alert.alert("Error", "Failed to remove member"),
   });
+
+  const [showBranchModal, setShowBranchModal] = useState(false);
+  const [branchName, setBranchName] = useState("");
+  const createBranchMutation = useMutation({
+    mutationFn: async (name: string) => apiRequest("POST", `/api/churches/${id}/branches`, { name }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/churches/${id}/branches`] });
+      setShowBranchModal(false);
+      setBranchName("");
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message || "Failed to create branch"),
+  });
+  const submitBranch = () => {
+    const n = branchName.trim();
+    if (!n) { Alert.alert("Required", "Please enter a branch name"); return; }
+    createBranchMutation.mutate(n);
+  };
 
   const handleShare = async () => {
     try { await Share.share({ message: `Join our church "${name}" on Prayer Walks! Code from the Profile tab.` }); } catch (_) {}
@@ -160,7 +177,19 @@ export default function ChurchDetailScreen() {
           </View>
         )}
         {/* Branches section */}
-        <Text style={[styles.sectionTitle, { marginTop: 20, marginBottom: 12 }]}>Branches</Text>
+        <View style={[styles.sectionRow, { marginTop: 20, marginBottom: 12 }]}>
+          <Text style={styles.sectionTitle}>Branches</Text>
+          {isAdmin && (
+            <Pressable
+              testID="create-branch-btn"
+              onPress={() => setShowBranchModal(true)}
+              style={({ pressed }) => [styles.createBtn, { opacity: pressed ? 0.75 : 1 }]}
+            >
+              <Feather name="plus" size={14} color="#0F0F23" />
+              <Text style={styles.createBtnText}>Create Branch</Text>
+            </Pressable>
+          )}
+        </View>
         {!branches || branches.length === 0 ? (
           <View style={styles.memberMessage}>
             <Feather name="git-branch" size={24} color="#4B5563" />
@@ -185,6 +214,40 @@ export default function ChurchDetailScreen() {
 
         <View style={{ height: 80 }} />
       </ScrollView>
+
+      <Modal visible={showBranchModal} transparent animationType="fade" onRequestClose={() => setShowBranchModal(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Create Branch</Text>
+            <TextInput
+              testID="branch-name-input"
+              value={branchName}
+              onChangeText={setBranchName}
+              placeholder="Branch name"
+              placeholderTextColor="#6B7280"
+              style={styles.modalInput}
+              autoFocus
+              returnKeyType="done"
+              onSubmitEditing={submitBranch}
+            />
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => { setShowBranchModal(false); setBranchName(""); }} style={[styles.modalBtn, styles.modalBtnGhost]}>
+                <Text style={styles.modalBtnGhostText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                testID="branch-submit-btn"
+                onPress={submitBranch}
+                disabled={createBranchMutation.isPending}
+                style={[styles.modalBtn, styles.modalBtnPrimary, createBranchMutation.isPending && { opacity: 0.6 }]}
+              >
+                {createBranchMutation.isPending
+                  ? <ActivityIndicator color="#0F0F23" />
+                  : <Text style={styles.modalBtnPrimaryText}>Create</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -226,4 +289,16 @@ const styles = StyleSheet.create({
   memberMessageSub: { fontSize: 13, fontFamily: "Inter_400Regular", color: "#6B7280", textAlign: "center" },
   branchCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#1A1A35", borderRadius: 12, padding: 14, marginBottom: 8, gap: 12 },
   branchIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: "rgba(76,217,100,0.15)", alignItems: "center", justifyContent: "center" },
+  createBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#4CD964", paddingHorizontal: 10, paddingVertical: 6, borderRadius: 16 },
+  createBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#0F0F23" },
+  modalBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.6)", justifyContent: "center", alignItems: "center", padding: 24 },
+  modalCard: { width: "100%", maxWidth: 400, backgroundColor: "#1A1A35", borderRadius: 16, padding: 20 },
+  modalTitle: { fontSize: 17, fontFamily: "Inter_700Bold", color: "#FFFFFF", marginBottom: 14 },
+  modalInput: { backgroundColor: "#0F0F23", borderRadius: 10, paddingHorizontal: 14, paddingVertical: 12, color: "#FFFFFF", fontFamily: "Inter_400Regular", fontSize: 15, marginBottom: 16 },
+  modalActions: { flexDirection: "row", justifyContent: "flex-end", gap: 8 },
+  modalBtn: { paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10, minWidth: 80, alignItems: "center" },
+  modalBtnGhost: { backgroundColor: "transparent" },
+  modalBtnGhostText: { color: "#9CA3AF", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  modalBtnPrimary: { backgroundColor: "#4CD964" },
+  modalBtnPrimaryText: { color: "#0F0F23", fontSize: 14, fontFamily: "Inter_600SemiBold" },
 });

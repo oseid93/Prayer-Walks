@@ -9,7 +9,6 @@ config.resolver = {
   ...config.resolver,
   blockList: [
     /\.local\/.*/,
-    /node_modules\/.*\/node_modules\/.*/,
   ],
 };
 
