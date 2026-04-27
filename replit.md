@@ -37,9 +37,19 @@ A mobile street coverage tracking app built with Expo (React Native) and Express
 - `password_reset_tokens` - Password reset codes (UUID id, 1hr expiry)
 - `groups` - Walking groups with unique join codes
 - `group_memberships` - User-group relationships
+- `churches` - Top-level church organizations with join codes
+- `church_memberships` - User-church relationships
+- `branches` - Sub-groups within churches
+- `branch_memberships` - User-branch relationships with `status` ('active'|'pending')
+- `teams` - Sub-groups within branches
+- `team_memberships` - User-team relationships with `status` ('active'|'pending')
 - `walking_sessions` - Walking session records with distance/duration
 - `route_points` - GPS coordinates recorded during sessions
-- `priority_areas` - Admin-drawn priority zones per group
+- `priority_areas` - Admin-drawn priority zones per branch
+
+### Admin Features
+- **Date-filtered stats** (church-detail, branch-detail, team-detail): Admins see filter pills (Last 7 Days / Last 30 Days / Custom date range). Stats query uses `?from=&to=` params.
+- **Join approval flow**: Joining a branch or team creates a `pending` membership. Branch/team admins see "Join Requests" panel with approve (✓) / reject (✗) buttons. Only `active` members appear in stats and member lists.
 
 ### Auth / Password Recovery
 - `POST /api/auth/register` - Accepts optional `email` field

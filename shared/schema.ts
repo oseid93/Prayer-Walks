@@ -107,6 +107,7 @@ export const branchMemberships = pgTable(
       .notNull()
       .references(() => groups.id),
     role: text("role").notNull().default("participant"),
+    status: text("status").notNull().default("active"),
     joinedAt: timestamp("joined_at").defaultNow().notNull(),
   },
   (table) => [
@@ -149,6 +150,7 @@ export const teamMemberships = pgTable(
       .notNull()
       .references(() => teams.id),
     role: text("role").notNull().default("participant"),
+    status: text("status").notNull().default("active"),
     joinedAt: timestamp("joined_at").defaultNow().notNull(),
   },
   (table) => [

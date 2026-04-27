@@ -206,7 +206,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const churchId = req.params.id;
       const isMember = await storage.isGroupMember(req.session.userId!, churchId);
       if (!isMember) return res.status(403).json({ message: "Not a member" });
-      const stats = await storage.getGroupStats(churchId);
+      const from = req.query.from ? new Date(req.query.from as string) : undefined;
+      const to = req.query.to ? new Date(req.query.to as string) : undefined;
+      const stats = await storage.getGroupStats(churchId, from, to);
       res.json(stats);
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
@@ -302,8 +304,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (currentBranch && currentBranch.id !== branchId) {
         return res.status(409).json({ message: "You are already in a branch. Leave it first." });
       }
+      const existing = await storage.hasBranchRequest(req.session.userId!, branchId);
+      if (existing === "pending") return res.json({ status: "pending", message: "Your join request is awaiting approval." });
+      if (existing === "active") return res.json({ status: "active", message: "Already a member." });
       await storage.joinBranch(req.session.userId!, branchId, churchId);
-      res.json(branch);
+      res.json({ status: "pending", message: "Your join request has been sent and is awaiting approval." });
     } catch (error) {
       console.error("Join branch error:", error);
       res.status(500).json({ message: "Internal server error" });
@@ -326,7 +331,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const isMember = await storage.isBranchMember(req.session.userId!, req.params.branchId);
       if (!isMember) return res.status(403).json({ message: "Not a branch member" });
-      res.json(await storage.getBranchStats(req.params.branchId));
+      const from = req.query.from ? new Date(req.query.from as string) : undefined;
+      const to = req.query.to ? new Date(req.query.to as string) : undefined;
+      res.json(await storage.getBranchStats(req.params.branchId, from, to));
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/branches/:branchId/requests", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { branchId } = req.params;
+      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      res.json(await storage.getPendingBranchRequests(branchId));
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/branches/:branchId/requests/:userId/approve", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { branchId, userId: targetUserId } = req.params;
+      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      await storage.approveBranchRequest(targetUserId, branchId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/branches/:branchId/requests/:userId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { branchId, userId: targetUserId } = req.params;
+      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      await storage.rejectBranchRequest(targetUserId, branchId);
+      res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -454,8 +496,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isBranchMember) return res.status(403).json({ message: "Not a branch member" });
       const team = await storage.getTeamById(teamId);
       if (!team || team.branchId !== branchId) return res.status(404).json({ message: "Team not found" });
+      const existing = await storage.hasTeamRequest(req.session.userId!, teamId);
+      if (existing === "pending") return res.json({ status: "pending", message: "Your join request is awaiting approval." });
+      if (existing === "active") return res.json({ status: "active", message: "Already a member." });
       await storage.joinTeam(req.session.userId!, teamId);
-      res.json(team);
+      res.json({ status: "pending", message: "Your join request has been sent and is awaiting approval." });
     } catch (error) {
       console.error("Join team error:", error);
       res.status(500).json({ message: "Internal server error" });
@@ -477,7 +522,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const isMember = await storage.isTeamMember(req.session.userId!, req.params.teamId);
       if (!isMember) return res.status(403).json({ message: "Not a team member" });
-      res.json(await storage.getTeamStats(req.params.teamId));
+      const from = req.query.from ? new Date(req.query.from as string) : undefined;
+      const to = req.query.to ? new Date(req.query.to as string) : undefined;
+      res.json(await storage.getTeamStats(req.params.teamId, from, to));
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.get("/api/teams/:teamId/requests", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { teamId } = req.params;
+      const role = await storage.getTeamMemberRole(req.session.userId!, teamId);
+      if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      res.json(await storage.getPendingTeamRequests(teamId));
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/teams/:teamId/requests/:userId/approve", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { teamId, userId: targetUserId } = req.params;
+      const role = await storage.getTeamMemberRole(req.session.userId!, teamId);
+      if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      await storage.approveTeamRequest(targetUserId, teamId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/teams/:teamId/requests/:userId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { teamId, userId: targetUserId } = req.params;
+      const role = await storage.getTeamMemberRole(req.session.userId!, teamId);
+      if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
+      await storage.rejectTeamRequest(targetUserId, teamId);
+      res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }

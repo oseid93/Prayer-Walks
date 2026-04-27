@@ -111,6 +111,18 @@ export async function runMigrations(): Promise<void> {
       CREATE INDEX IF NOT EXISTS session_notes_session_idx ON session_notes(session_id)
     `);
 
+    // Add status column to branch_memberships for join approval flow
+    await client.query(`
+      ALTER TABLE branch_memberships
+        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
+    `);
+
+    // Add status column to team_memberships for join approval flow
+    await client.query(`
+      ALTER TABLE team_memberships
+        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
+    `);
+
     await client.query("COMMIT");
     console.log("Migrations completed successfully");
   } catch (err) {

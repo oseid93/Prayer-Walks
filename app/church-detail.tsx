@@ -18,8 +18,27 @@ interface MemberStats {
 interface ChurchStats { memberCount: number; sessionCount: number; totalDistance: number; totalDuration: number; }
 interface Branch { id: string; name: string; role: string | null; memberCount: number; }
 
+type DateFilter = "7d" | "30d" | "custom";
+
 function fmtDist(km: number) { return km >= 1 ? `${km.toFixed(1)} km` : `${Math.round(km * 1000)} m`; }
 function fmtDur(s: number) { const h = Math.floor(s / 3600); const m = Math.floor((s % 3600) / 60); return h > 0 ? `${h}h ${m}m` : `${m}m`; }
+
+function buildStatsUrl(base: string, filter: DateFilter | null, customFrom: string, customTo: string): string {
+  if (!filter) return base;
+  const now = new Date();
+  if (filter === "7d") {
+    const from = new Date(now); from.setDate(from.getDate() - 7);
+    return `${base}?from=${from.toISOString()}&to=${now.toISOString()}`;
+  }
+  if (filter === "30d") {
+    const from = new Date(now); from.setDate(from.getDate() - 30);
+    return `${base}?from=${from.toISOString()}&to=${now.toISOString()}`;
+  }
+  if (filter === "custom" && customFrom && customTo) {
+    return `${base}?from=${new Date(customFrom).toISOString()}&to=${new Date(customTo + "T23:59:59").toISOString()}`;
+  }
+  return base;
+}
 
 export default function ChurchDetailScreen() {
   const { id, name, role } = useLocalSearchParams<{ id: string; name: string; role: string }>();
@@ -29,7 +48,13 @@ export default function ChurchDetailScreen() {
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const isAdmin = role === "admin";
 
-  const { data: stats } = useQuery<ChurchStats>({ queryKey: [`/api/churches/${id}/stats`] });
+  const [dateFilter, setDateFilter] = useState<DateFilter | null>(null);
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
+
+  const statsUrl = buildStatsUrl(`/api/churches/${id}/stats`, isAdmin ? dateFilter : null, customFrom, customTo);
+
+  const { data: stats } = useQuery<ChurchStats>({ queryKey: [statsUrl] });
   const { data: members, isLoading: membersLoading } = useQuery<MemberStats[]>({
     queryKey: [`/api/churches/${id}/members`],
     enabled: isAdmin,
@@ -59,7 +84,7 @@ export default function ChurchDetailScreen() {
     mutationFn: async (userId: string) => { await apiRequest("DELETE", `/api/churches/${id}/members/${userId}`); },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/churches/${id}/members`] });
-      queryClient.invalidateQueries({ queryKey: [`/api/churches/${id}/stats`] });
+      queryClient.invalidateQueries({ queryKey: [statsUrl] });
     },
     onError: () => Alert.alert("Error", "Failed to remove member"),
   });
@@ -97,6 +122,42 @@ export default function ChurchDetailScreen() {
           <Text style={[styles.rolePillText, { color: isAdmin ? "#FFCC00" : "#9CA3AF" }]}>{isAdmin ? "Admin" : "Member"}</Text>
         </View>
       </View>
+
+      {isAdmin && (
+        <View style={styles.filterRow}>
+          {(["7d", "30d", "custom"] as DateFilter[]).map((f) => (
+            <Pressable
+              key={f}
+              onPress={() => setDateFilter(dateFilter === f ? null : f)}
+              style={[styles.filterPill, dateFilter === f && styles.filterPillActive]}
+            >
+              <Text style={[styles.filterPillText, dateFilter === f && styles.filterPillTextActive]}>
+                {f === "7d" ? "Last 7 Days" : f === "30d" ? "Last 30 Days" : "Custom"}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
+      {isAdmin && dateFilter === "custom" && (
+        <View style={styles.customDateRow}>
+          <TextInput
+            value={customFrom}
+            onChangeText={setCustomFrom}
+            placeholder="From YYYY-MM-DD"
+            placeholderTextColor="#6B7280"
+            style={styles.dateInput}
+          />
+          <Text style={styles.dateSep}>—</Text>
+          <TextInput
+            value={customTo}
+            onChangeText={setCustomTo}
+            placeholder="To YYYY-MM-DD"
+            placeholderTextColor="#6B7280"
+            style={styles.dateInput}
+          />
+        </View>
+      )}
 
       {stats && (
         <View style={styles.statsRow}>
@@ -259,6 +320,14 @@ const styles = StyleSheet.create({
   title: { flex: 1, fontSize: 20, fontFamily: "Inter_700Bold", color: "#FFFFFF" },
   rolePill: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "#1A1A35", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 20 },
   rolePillText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  filterRow: { flexDirection: "row", paddingHorizontal: 16, gap: 6, marginBottom: 8 },
+  filterPill: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, backgroundColor: "#1A1A35", borderWidth: 1, borderColor: "#2A2A45" },
+  filterPillActive: { backgroundColor: "#33C3F0", borderColor: "#33C3F0" },
+  filterPillText: { fontSize: 12, fontFamily: "Inter_500Medium", color: "#9CA3AF" },
+  filterPillTextActive: { color: "#0F0F23" },
+  customDateRow: { flexDirection: "row", alignItems: "center", paddingHorizontal: 16, gap: 8, marginBottom: 8 },
+  dateInput: { flex: 1, backgroundColor: "#1A1A35", borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7, color: "#FFFFFF", fontFamily: "Inter_400Regular", fontSize: 13 },
+  dateSep: { color: "#6B7280", fontSize: 14 },
   statsRow: { flexDirection: "row", paddingHorizontal: 16, gap: 8, marginBottom: 12 },
   statCard: { flex: 1, backgroundColor: "#1A1A35", borderRadius: 12, padding: 10, alignItems: "center", gap: 4 },
   statValue: { fontSize: 14, fontFamily: "Inter_700Bold", color: "#FFFFFF" },

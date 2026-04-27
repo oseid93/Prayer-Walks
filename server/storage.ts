@@ -26,7 +26,7 @@ import {
   passwordResetTokens,
 } from "../shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, and, inArray, desc, asc, sum, count, gt, or, isNull } from "drizzle-orm";
+import { eq, and, inArray, desc, asc, sum, count, gt, gte, lte, or, isNull } from "drizzle-orm";
 import pg from "pg";
 
 if (!process.env.DATABASE_URL) {
@@ -77,7 +77,7 @@ export interface IStorage {
   removeMember(userId: string, groupId: string): Promise<void>;
   removeChurchMemberCascade(userId: string, churchId: string): Promise<void>;
   getGroupMembersWithStats(groupId: string): Promise<MemberStats[]>;
-  getGroupStats(groupId: string): Promise<GroupStats>;
+  getGroupStats(groupId: string, from?: Date, to?: Date): Promise<GroupStats>;
 
   // Branches
   createBranch(churchId: string, name: string, userId: string): Promise<Branch>;
@@ -87,12 +87,16 @@ export interface IStorage {
   joinBranch(userId: string, branchId: string, churchId: string): Promise<BranchMembership>;
   leaveBranch(userId: string, branchId: string): Promise<void>;
   isBranchMember(userId: string, branchId: string): Promise<boolean>;
+  hasBranchRequest(userId: string, branchId: string): Promise<string | null>;
   getBranchMemberRole(userId: string, branchId: string): Promise<string | undefined>;
   setBranchMemberRole(userId: string, branchId: string, role: string): Promise<void>;
   removeBranchMember(userId: string, branchId: string): Promise<void>;
   getBranchMembersWithStats(branchId: string): Promise<MemberStats[]>;
-  getBranchStats(branchId: string): Promise<GroupStats>;
+  getBranchStats(branchId: string, from?: Date, to?: Date): Promise<GroupStats>;
   getBranchMembers(branchId: string): Promise<string[]>;
+  getPendingBranchRequests(branchId: string): Promise<Array<{ userId: string; displayName: string; requestedAt: Date }>>;
+  approveBranchRequest(userId: string, branchId: string): Promise<void>;
+  rejectBranchRequest(userId: string, branchId: string): Promise<void>;
 
   // Teams
   createTeam(branchId: string, name: string, userId: string): Promise<Team>;
@@ -102,12 +106,16 @@ export interface IStorage {
   joinTeam(userId: string, teamId: string): Promise<TeamMembership>;
   leaveTeam(userId: string, teamId: string): Promise<void>;
   isTeamMember(userId: string, teamId: string): Promise<boolean>;
+  hasTeamRequest(userId: string, teamId: string): Promise<string | null>;
   getTeamMemberRole(userId: string, teamId: string): Promise<string | undefined>;
   setTeamMemberRole(userId: string, teamId: string, role: string): Promise<void>;
   removeTeamMember(userId: string, teamId: string): Promise<void>;
   getTeamMembersWithStats(teamId: string): Promise<MemberStats[]>;
-  getTeamStats(teamId: string): Promise<GroupStats>;
+  getTeamStats(teamId: string, from?: Date, to?: Date): Promise<GroupStats>;
   getTeamMembers(teamId: string): Promise<string[]>;
+  getPendingTeamRequests(teamId: string): Promise<Array<{ userId: string; displayName: string; requestedAt: Date }>>;
+  approveTeamRequest(userId: string, teamId: string): Promise<void>;
+  rejectTeamRequest(userId: string, teamId: string): Promise<void>;
   getMyTeams(userId: string): Promise<Array<Team & { role: string; branchName: string; churchId: string }>>;
   getMyAdminBranches(userId: string): Promise<Array<Branch & { role: string }>>;
 
@@ -305,15 +313,15 @@ export class DatabaseStorage implements IStorage {
     return results;
   }
 
-  async getGroupStats(groupId: string): Promise<GroupStats> {
+  async getGroupStats(groupId: string, from?: Date, to?: Date): Promise<GroupStats> {
     const memberships = await db.select().from(groupMemberships).where(eq(groupMemberships.groupId, groupId));
     const memberCount = memberships.length;
     if (memberCount === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
     const memberIds = memberships.map((m) => m.userId);
-    const sessions = await db
-      .select()
-      .from(walkingSessions)
-      .where(and(inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)));
+    const conditions = [inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)];
+    if (from) conditions.push(gte(walkingSessions.startedAt, from));
+    if (to) conditions.push(lte(walkingSessions.startedAt, to));
+    const sessions = await db.select().from(walkingSessions).where(and(...conditions));
     return {
       memberCount,
       sessionCount: sessions.length,
@@ -343,15 +351,16 @@ export class DatabaseStorage implements IStorage {
     const [membership] = await db
       .select()
       .from(branchMemberships)
-      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.churchId, churchId)));
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.churchId, churchId), eq(branchMemberships.status, "active")));
     if (!membership) return undefined;
     return this.getBranchById(membership.branchId);
   }
 
+  // Creates a pending join request; branch admin must approve
   async joinBranch(userId: string, branchId: string, churchId: string): Promise<BranchMembership> {
     const [membership] = await db
       .insert(branchMemberships)
-      .values({ userId, branchId, churchId, role: "participant" })
+      .values({ userId, branchId, churchId, role: "participant", status: "pending" })
       .onConflictDoNothing()
       .returning();
     if (!membership) {
@@ -380,15 +389,23 @@ export class DatabaseStorage implements IStorage {
     const [m] = await db
       .select()
       .from(branchMemberships)
-      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId), eq(branchMemberships.status, "active")));
     return !!m;
+  }
+
+  async hasBranchRequest(userId: string, branchId: string): Promise<string | null> {
+    const [m] = await db
+      .select()
+      .from(branchMemberships)
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
+    return m?.status ?? null;
   }
 
   async getBranchMemberRole(userId: string, branchId: string): Promise<string | undefined> {
     const [m] = await db
       .select()
       .from(branchMemberships)
-      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId), eq(branchMemberships.status, "active")));
     return m?.role;
   }
 
@@ -404,12 +421,12 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getBranchMembers(branchId: string): Promise<string[]> {
-    const memberships = await db.select().from(branchMemberships).where(eq(branchMemberships.branchId, branchId));
+    const memberships = await db.select().from(branchMemberships).where(and(eq(branchMemberships.branchId, branchId), eq(branchMemberships.status, "active")));
     return memberships.map((m) => m.userId);
   }
 
   async getBranchMembersWithStats(branchId: string): Promise<MemberStats[]> {
-    const memberships = await db.select().from(branchMemberships).where(eq(branchMemberships.branchId, branchId));
+    const memberships = await db.select().from(branchMemberships).where(and(eq(branchMemberships.branchId, branchId), eq(branchMemberships.status, "active")));
     if (memberships.length === 0) return [];
     const results: MemberStats[] = [];
     for (const membership of memberships) {
@@ -431,19 +448,37 @@ export class DatabaseStorage implements IStorage {
     return results;
   }
 
-  async getBranchStats(branchId: string): Promise<GroupStats> {
+  async getBranchStats(branchId: string, from?: Date, to?: Date): Promise<GroupStats> {
     const memberIds = await this.getBranchMembers(branchId);
     if (memberIds.length === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
-    const sessions = await db
-      .select()
-      .from(walkingSessions)
-      .where(and(inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)));
+    const conditions = [inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)];
+    if (from) conditions.push(gte(walkingSessions.startedAt, from));
+    if (to) conditions.push(lte(walkingSessions.startedAt, to));
+    const sessions = await db.select().from(walkingSessions).where(and(...conditions));
     return {
       memberCount: memberIds.length,
       sessionCount: sessions.length,
       totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
       totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0),
     };
+  }
+
+  async getPendingBranchRequests(branchId: string): Promise<Array<{ userId: string; displayName: string; requestedAt: Date }>> {
+    const memberships = await db.select().from(branchMemberships).where(and(eq(branchMemberships.branchId, branchId), eq(branchMemberships.status, "pending")));
+    const results: Array<{ userId: string; displayName: string; requestedAt: Date }> = [];
+    for (const m of memberships) {
+      const [u] = await db.select().from(users).where(eq(users.id, m.userId));
+      if (u) results.push({ userId: m.userId, displayName: u.displayName, requestedAt: m.joinedAt });
+    }
+    return results;
+  }
+
+  async approveBranchRequest(userId: string, branchId: string): Promise<void> {
+    await db.update(branchMemberships).set({ status: "active" }).where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
+  }
+
+  async rejectBranchRequest(userId: string, branchId: string): Promise<void> {
+    await db.delete(branchMemberships).where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
   }
 
   // ─── Teams ────────────────────────────────────────────────────────────────
@@ -464,17 +499,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserTeamsInBranch(userId: string, branchId: string): Promise<Team[]> {
-    const memberships = await db.select().from(teamMemberships).where(eq(teamMemberships.userId, userId));
+    const memberships = await db.select().from(teamMemberships).where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.status, "active")));
     if (memberships.length === 0) return [];
     const teamIds = memberships.map((m) => m.teamId);
     const allTeams = await db.select().from(teams).where(inArray(teams.id, teamIds));
     return allTeams.filter((t) => t.branchId === branchId);
   }
 
+  // Creates a pending join request; team admin must approve
   async joinTeam(userId: string, teamId: string): Promise<TeamMembership> {
     const [membership] = await db
       .insert(teamMemberships)
-      .values({ userId, teamId, role: "participant" })
+      .values({ userId, teamId, role: "participant", status: "pending" })
       .onConflictDoNothing()
       .returning();
     if (!membership) {
@@ -495,15 +531,23 @@ export class DatabaseStorage implements IStorage {
     const [m] = await db
       .select()
       .from(teamMemberships)
-      .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+      .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
     return !!m;
+  }
+
+  async hasTeamRequest(userId: string, teamId: string): Promise<string | null> {
+    const [m] = await db
+      .select()
+      .from(teamMemberships)
+      .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+    return m?.status ?? null;
   }
 
   async getTeamMemberRole(userId: string, teamId: string): Promise<string | undefined> {
     const [m] = await db
       .select()
       .from(teamMemberships)
-      .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+      .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
     return m?.role;
   }
 
@@ -519,12 +563,30 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTeamMembers(teamId: string): Promise<string[]> {
-    const memberships = await db.select().from(teamMemberships).where(eq(teamMemberships.teamId, teamId));
+    const memberships = await db.select().from(teamMemberships).where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
     return memberships.map((m) => m.userId);
   }
 
+  async getPendingTeamRequests(teamId: string): Promise<Array<{ userId: string; displayName: string; requestedAt: Date }>> {
+    const memberships = await db.select().from(teamMemberships).where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "pending")));
+    const results: Array<{ userId: string; displayName: string; requestedAt: Date }> = [];
+    for (const m of memberships) {
+      const [u] = await db.select().from(users).where(eq(users.id, m.userId));
+      if (u) results.push({ userId: m.userId, displayName: u.displayName, requestedAt: m.joinedAt });
+    }
+    return results;
+  }
+
+  async approveTeamRequest(userId: string, teamId: string): Promise<void> {
+    await db.update(teamMemberships).set({ status: "active" }).where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+  }
+
+  async rejectTeamRequest(userId: string, teamId: string): Promise<void> {
+    await db.delete(teamMemberships).where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.teamId, teamId)));
+  }
+
   async getMyTeams(userId: string): Promise<Array<Team & { role: string; branchName: string; churchId: string }>> {
-    const memberships = await db.select().from(teamMemberships).where(eq(teamMemberships.userId, userId));
+    const memberships = await db.select().from(teamMemberships).where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.status, "active")));
     const result: Array<Team & { role: string; branchName: string; churchId: string }> = [];
     for (const m of memberships) {
       const team = await this.getTeamById(m.teamId);
@@ -540,7 +602,7 @@ export class DatabaseStorage implements IStorage {
     const memberships = await db
       .select()
       .from(branchMemberships)
-      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.role, "admin")));
+      .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.role, "admin"), eq(branchMemberships.status, "active")));
     const result: Array<Branch & { role: string }> = [];
     for (const m of memberships) {
       const branch = await this.getBranchById(m.branchId);
@@ -550,7 +612,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getTeamMembersWithStats(teamId: string): Promise<MemberStats[]> {
-    const memberships = await db.select().from(teamMemberships).where(eq(teamMemberships.teamId, teamId));
+    const memberships = await db.select().from(teamMemberships).where(and(eq(teamMemberships.teamId, teamId), eq(teamMemberships.status, "active")));
     if (memberships.length === 0) return [];
     const results: MemberStats[] = [];
     for (const membership of memberships) {
@@ -572,13 +634,13 @@ export class DatabaseStorage implements IStorage {
     return results;
   }
 
-  async getTeamStats(teamId: string): Promise<GroupStats> {
+  async getTeamStats(teamId: string, from?: Date, to?: Date): Promise<GroupStats> {
     const memberIds = await this.getTeamMembers(teamId);
     if (memberIds.length === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
-    const sessions = await db
-      .select()
-      .from(walkingSessions)
-      .where(and(inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)));
+    const conditions = [inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)];
+    if (from) conditions.push(gte(walkingSessions.startedAt, from));
+    if (to) conditions.push(lte(walkingSessions.startedAt, to));
+    const sessions = await db.select().from(walkingSessions).where(and(...conditions));
     return {
       memberCount: memberIds.length,
       sessionCount: sessions.length,
