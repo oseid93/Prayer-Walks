@@ -282,13 +282,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { churchId } = req.params;
       const role = await storage.getMemberRole(req.session.userId!, churchId);
-      if (role !== "admin") return res.status(403).json({ message: "Church admin access required" });
+      if (!role) return res.status(403).json({ message: "Not a church member" });
       const { name } = req.body;
       if (!name || !name.trim()) return res.status(400).json({ message: "Branch name required" });
-      const branch = await storage.createBranch(churchId, name.trim(), req.session.userId!);
-      res.json(branch);
+
+      if (role === "admin") {
+        const branch = await storage.createBranch(churchId, name.trim(), req.session.userId!, "active");
+        return res.json({ ...branch, status: "active" });
+      }
+      // Non-admin members create a pending request that the church admin must approve.
+      // Block if they're already in a branch in this church.
+      const currentBranch = await storage.getUserBranchInChurch(req.session.userId!, churchId);
+      if (currentBranch) {
+        return res.status(409).json({ message: "You are already in a branch. Leave it first to request a new one." });
+      }
+      const branch = await storage.createBranch(churchId, name.trim(), req.session.userId!, "pending");
+      res.json({ ...branch, status: "pending", message: "Your branch request has been sent and is awaiting church admin approval." });
     } catch (error) {
       console.error("Create branch error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // ─── Branch creation requests (admin approval) ────────────────────────────
+  app.get("/api/churches/:churchId/branch-creation-requests", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { churchId } = req.params;
+      const role = await storage.getMemberRole(req.session.userId!, churchId);
+      if (role !== "admin") return res.status(403).json({ message: "Church admin access required" });
+      res.json(await storage.getPendingBranchesByChurch(churchId));
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/churches/:churchId/branch-creation-requests/:branchId/approve", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { churchId, branchId } = req.params;
+      const role = await storage.getMemberRole(req.session.userId!, churchId);
+      if (role !== "admin") return res.status(403).json({ message: "Church admin access required" });
+      const branch = await storage.getBranchById(branchId);
+      if (!branch || branch.churchId !== churchId || branch.status !== "pending") {
+        return res.status(404).json({ message: "Pending branch not found" });
+      }
+      await storage.approveBranchCreation(branchId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Approve branch creation error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/churches/:churchId/branch-creation-requests/:branchId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { churchId, branchId } = req.params;
+      const role = await storage.getMemberRole(req.session.userId!, churchId);
+      if (role !== "admin") return res.status(403).json({ message: "Church admin access required" });
+      const branch = await storage.getBranchById(branchId);
+      if (!branch || branch.churchId !== churchId || branch.status !== "pending") {
+        return res.status(404).json({ message: "Pending branch not found" });
+      }
+      await storage.rejectBranchCreation(branchId);
+      res.json({ success: true });
+    } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -299,7 +355,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isMember = await storage.isGroupMember(req.session.userId!, churchId);
       if (!isMember) return res.status(403).json({ message: "Not a church member" });
       const branch = await storage.getBranchById(branchId);
-      if (!branch || branch.churchId !== churchId) return res.status(404).json({ message: "Branch not found" });
+      if (!branch || branch.churchId !== churchId || branch.status !== "active") return res.status(404).json({ message: "Branch not found" });
       const currentBranch = await storage.getUserBranchInChurch(req.session.userId!, churchId);
       if (currentBranch && currentBranch.id !== branchId) {
         return res.status(409).json({ message: "You are already in a branch. Leave it first." });
@@ -478,13 +534,63 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { branchId } = req.params;
       const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
-      if (role !== "admin") return res.status(403).json({ message: "Branch admin access required" });
+      if (!role) return res.status(403).json({ message: "Not a branch member" });
       const { name } = req.body;
       if (!name || !name.trim()) return res.status(400).json({ message: "Team name required" });
-      const team = await storage.createTeam(branchId, name.trim(), req.session.userId!);
-      res.json(team);
+
+      if (role === "admin") {
+        const team = await storage.createTeam(branchId, name.trim(), req.session.userId!, "active");
+        return res.json({ ...team, status: "active" });
+      }
+      const team = await storage.createTeam(branchId, name.trim(), req.session.userId!, "pending");
+      res.json({ ...team, status: "pending", message: "Your team request has been sent and is awaiting branch admin approval." });
     } catch (error) {
       console.error("Create team error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  // ─── Team creation requests (admin approval) ──────────────────────────────
+  app.get("/api/branches/:branchId/team-creation-requests", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { branchId } = req.params;
+      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      if (role !== "admin") return res.status(403).json({ message: "Branch admin access required" });
+      res.json(await storage.getPendingTeamsByBranch(branchId));
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.post("/api/branches/:branchId/team-creation-requests/:teamId/approve", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { branchId, teamId } = req.params;
+      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      if (role !== "admin") return res.status(403).json({ message: "Branch admin access required" });
+      const team = await storage.getTeamById(teamId);
+      if (!team || team.branchId !== branchId || team.status !== "pending") {
+        return res.status(404).json({ message: "Pending team not found" });
+      }
+      await storage.approveTeamCreation(teamId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Approve team creation error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/branches/:branchId/team-creation-requests/:teamId", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { branchId, teamId } = req.params;
+      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      if (role !== "admin") return res.status(403).json({ message: "Branch admin access required" });
+      const team = await storage.getTeamById(teamId);
+      if (!team || team.branchId !== branchId || team.status !== "pending") {
+        return res.status(404).json({ message: "Pending team not found" });
+      }
+      await storage.rejectTeamCreation(teamId);
+      res.json({ success: true });
+    } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -495,7 +601,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isBranchMember = await storage.isBranchMember(req.session.userId!, branchId);
       if (!isBranchMember) return res.status(403).json({ message: "Not a branch member" });
       const team = await storage.getTeamById(teamId);
-      if (!team || team.branchId !== branchId) return res.status(404).json({ message: "Team not found" });
+      if (!team || team.branchId !== branchId || team.status !== "active") return res.status(404).json({ message: "Team not found" });
       const existing = await storage.hasTeamRequest(req.session.userId!, teamId);
       if (existing === "pending") return res.json({ status: "pending", message: "Your join request is awaiting approval." });
       if (existing === "active") return res.json({ status: "active", message: "Already a member." });

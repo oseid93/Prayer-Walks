@@ -17,6 +17,7 @@ interface MemberStats {
 }
 interface ChurchStats { memberCount: number; sessionCount: number; totalDistance: number; totalDuration: number; }
 interface Branch { id: string; name: string; role: string | null; memberCount: number; }
+interface PendingBranch { id: string; name: string; requestedByName: string; createdAt: string; }
 
 type DateFilter = "7d" | "30d" | "custom";
 
@@ -60,6 +61,25 @@ export default function ChurchDetailScreen() {
     enabled: isAdmin,
   });
   const { data: branches } = useQuery<Branch[]>({ queryKey: [`/api/churches/${id}/branches`] });
+  const { data: pendingBranches } = useQuery<PendingBranch[]>({
+    queryKey: [`/api/churches/${id}/branch-creation-requests`],
+    enabled: isAdmin,
+  });
+
+  const approveBranchMutation = useMutation({
+    mutationFn: async (branchId: string) => { await apiRequest("POST", `/api/churches/${id}/branch-creation-requests/${branchId}/approve`); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/churches/${id}/branch-creation-requests`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/churches/${id}/branches`] });
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message || "Failed to approve branch"),
+  });
+
+  const rejectBranchMutation = useMutation({
+    mutationFn: async (branchId: string) => { await apiRequest("DELETE", `/api/churches/${id}/branch-creation-requests/${branchId}`); },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [`/api/churches/${id}/branch-creation-requests`] }),
+    onError: () => Alert.alert("Error", "Failed to reject branch"),
+  });
 
   type SortKey = "walks" | "distance" | "name";
   const [sortBy, setSortBy] = useState<SortKey>("walks");
@@ -92,11 +112,17 @@ export default function ChurchDetailScreen() {
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [branchName, setBranchName] = useState("");
   const createBranchMutation = useMutation({
-    mutationFn: async (name: string) => apiRequest("POST", `/api/churches/${id}/branches`, { name }),
-    onSuccess: () => {
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", `/api/churches/${id}/branches`, { name });
+      return res.json();
+    },
+    onSuccess: (data: { status?: string; name?: string }) => {
       queryClient.invalidateQueries({ queryKey: [`/api/churches/${id}/branches`] });
       setShowBranchModal(false);
       setBranchName("");
+      if (data?.status === "pending") {
+        Alert.alert("Request Sent", `Your request to create "${data.name}" has been sent to the church admin for approval.`);
+      }
     },
     onError: (err: Error) => Alert.alert("Error", err.message || "Failed to create branch"),
   });
@@ -237,19 +263,63 @@ export default function ChurchDetailScreen() {
             <Text style={styles.memberMessageSub}>Your walks contribute to the shared stats above.</Text>
           </View>
         )}
+        {/* Pending Branch Creation Requests — admin only */}
+        {isAdmin && pendingBranches && pendingBranches.length > 0 && (
+          <>
+            <View style={[styles.sectionRow, { marginTop: 20 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={styles.sectionTitle}>Branch Requests</Text>
+                <View style={styles.badgePill}>
+                  <Text style={styles.badgePillText}>{pendingBranches.length}</Text>
+                </View>
+              </View>
+            </View>
+            {pendingBranches.map((b) => (
+              <View key={b.id} style={styles.requestCard}>
+                <View style={styles.branchIcon}>
+                  <Feather name="git-branch" size={16} color="#4CD964" />
+                </View>
+                <View style={styles.memberInfo}>
+                  <Text style={styles.memberName}>{b.name}</Text>
+                  <Text style={styles.memberStatText}>Requested by {b.requestedByName}</Text>
+                </View>
+                <View style={styles.memberActions}>
+                  <Pressable
+                    testID={`approve-branch-${b.id}`}
+                    onPress={() => approveBranchMutation.mutate(b.id)}
+                    style={[styles.reqBtn, styles.reqBtnApprove]}
+                    hitSlop={8}
+                  >
+                    <Feather name="check" size={15} color="#0F0F23" />
+                  </Pressable>
+                  <Pressable
+                    testID={`reject-branch-${b.id}`}
+                    onPress={() => Alert.alert("Reject Branch", `Reject "${b.name}"?`, [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Reject", style: "destructive", onPress: () => rejectBranchMutation.mutate(b.id) },
+                    ])}
+                    style={[styles.reqBtn, styles.reqBtnReject]}
+                    hitSlop={8}
+                  >
+                    <Feather name="x" size={15} color="#FF3B30" />
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </>
+        )}
+
         {/* Branches section */}
         <View style={[styles.sectionRow, { marginTop: 20, marginBottom: 12 }]}>
           <Text style={styles.sectionTitle}>Branches</Text>
-          {isAdmin && (
-            <Pressable
-              testID="create-branch-btn"
-              onPress={() => setShowBranchModal(true)}
-              style={({ pressed }) => [styles.createBtn, { opacity: pressed ? 0.75 : 1 }]}
-            >
-              <Feather name="plus" size={14} color="#0F0F23" />
-              <Text style={styles.createBtnText}>Create Branch</Text>
-            </Pressable>
-          )}
+          <Pressable
+            testID="create-branch-btn"
+            onPress={() => setShowBranchModal(true)}
+            style={({ pressed }) => [styles.createBtn, { opacity: pressed ? 0.75 : 1 }]}
+          >
+            <Feather name="plus" size={14} color="#0F0F23" />
+            <Text style={styles.createBtnText}>{isAdmin ? "Create Branch" : "Request Branch"}</Text>
+          </Pressable>
         </View>
         {!branches || branches.length === 0 ? (
           <View style={styles.memberMessage}>
@@ -279,7 +349,10 @@ export default function ChurchDetailScreen() {
       <Modal visible={showBranchModal} transparent animationType="fade" onRequestClose={() => setShowBranchModal(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Create Branch</Text>
+            <Text style={styles.modalTitle}>{isAdmin ? "Create Branch" : "Request Branch"}</Text>
+            {!isAdmin && (
+              <Text style={styles.modalHelp}>Your request will be sent to the church admin for approval.</Text>
+            )}
             <TextInput
               testID="branch-name-input"
               value={branchName}
@@ -370,4 +443,11 @@ const styles = StyleSheet.create({
   modalBtnGhostText: { color: "#9CA3AF", fontSize: 14, fontFamily: "Inter_600SemiBold" },
   modalBtnPrimary: { backgroundColor: "#4CD964" },
   modalBtnPrimaryText: { color: "#0F0F23", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  modalHelp: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#9CA3AF", marginBottom: 12, marginTop: -8 },
+  badgePill: { backgroundColor: "#FF3B30", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 },
+  badgePillText: { fontSize: 11, fontFamily: "Inter_700Bold", color: "#FFFFFF" },
+  requestCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#1E1A35", borderRadius: 12, padding: 12, marginBottom: 8, gap: 12, borderWidth: 1, borderColor: "#2A2A50" },
+  reqBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  reqBtnApprove: { backgroundColor: "#4CD964" },
+  reqBtnReject: { backgroundColor: "rgba(255,59,48,0.12)" },
 });

@@ -85,6 +85,7 @@ export const branches = pgTable(
     createdById: varchar("created_by_id")
       .notNull()
       .references(() => users.id),
+    status: text("status").notNull().default("active"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("branches_church_idx").on(table.churchId)],
@@ -131,6 +132,7 @@ export const teams = pgTable(
     createdById: varchar("created_by_id")
       .notNull()
       .references(() => users.id),
+    status: text("status").notNull().default("active"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (table) => [index("teams_branch_idx").on(table.branchId)],

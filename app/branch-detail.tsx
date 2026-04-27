@@ -13,6 +13,7 @@ interface BranchStats { memberCount: number; sessionCount: number; totalDistance
 interface PriorityArea { id: string; name: string; color: string; coordinates: Array<{ latitude: number; longitude: number }>; }
 interface Team { id: string; name: string; role: string | null; memberCount: number; }
 interface PendingRequest { userId: string; displayName: string; requestedAt: string; }
+interface PendingTeam { id: string; name: string; requestedByName: string; createdAt: string; }
 
 type DateFilter = "7d" | "30d" | "custom";
 
@@ -61,6 +62,26 @@ export default function BranchDetailScreen() {
   });
   const { data: priorityAreas } = useQuery<PriorityArea[]>({ queryKey: [`/api/branches/${id}/priority-areas`] });
   const { data: teams } = useQuery<Team[]>({ queryKey: [`/api/branches/${id}/teams`] });
+  const { data: pendingTeams } = useQuery<PendingTeam[]>({
+    queryKey: [`/api/branches/${id}/team-creation-requests`],
+    enabled: isAdmin,
+  });
+
+  const approveTeamMutation = useMutation({
+    mutationFn: async (teamId: string) => { await apiRequest("POST", `/api/branches/${id}/team-creation-requests/${teamId}/approve`); },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/branches/${id}/team-creation-requests`] });
+      queryClient.invalidateQueries({ queryKey: [`/api/branches/${id}/teams`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-teams"] });
+    },
+    onError: (err: Error) => Alert.alert("Error", err.message || "Failed to approve team"),
+  });
+
+  const rejectTeamMutation = useMutation({
+    mutationFn: async (teamId: string) => { await apiRequest("DELETE", `/api/branches/${id}/team-creation-requests/${teamId}`); },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [`/api/branches/${id}/team-creation-requests`] }),
+    onError: () => Alert.alert("Error", "Failed to reject team"),
+  });
 
   type SortKey = "walks" | "distance" | "name";
   const [sortBy, setSortBy] = useState<SortKey>("walks");
@@ -118,12 +139,18 @@ export default function BranchDetailScreen() {
   const [showTeamModal, setShowTeamModal] = useState(false);
   const [teamName, setTeamName] = useState("");
   const createTeamMutation = useMutation({
-    mutationFn: async (name: string) => apiRequest("POST", `/api/branches/${id}/teams`, { name }),
-    onSuccess: () => {
+    mutationFn: async (name: string) => {
+      const res = await apiRequest("POST", `/api/branches/${id}/teams`, { name });
+      return res.json();
+    },
+    onSuccess: (data: { status?: string; name?: string }) => {
       queryClient.invalidateQueries({ queryKey: [`/api/branches/${id}/teams`] });
       queryClient.invalidateQueries({ queryKey: ["/api/my-teams"] });
       setShowTeamModal(false);
       setTeamName("");
+      if (data?.status === "pending") {
+        Alert.alert("Request Sent", `Your request to create "${data.name}" has been sent to the branch admin for approval.`);
+      }
     },
     onError: (err: Error) => Alert.alert("Error", err.message || "Failed to create team"),
   });
@@ -352,19 +379,63 @@ export default function BranchDetailScreen() {
           </Pressable>
         ))}
 
+        {/* Pending Team Creation Requests — admin only */}
+        {isAdmin && pendingTeams && pendingTeams.length > 0 && (
+          <>
+            <View style={[styles.sectionRow, { marginTop: 20 }]}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={styles.sectionTitle}>Team Requests</Text>
+                <View style={styles.badgePill}>
+                  <Text style={styles.badgePillText}>{pendingTeams.length}</Text>
+                </View>
+              </View>
+            </View>
+            {pendingTeams.map((t) => (
+              <View key={t.id} style={styles.requestCard}>
+                <View style={styles.teamIcon}>
+                  <Feather name="users" size={16} color="#FF9500" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.zoneName}>{t.name}</Text>
+                  <Text style={styles.zonePoints}>Requested by {t.requestedByName}</Text>
+                </View>
+                <View style={{ flexDirection: "row", gap: 8 }}>
+                  <Pressable
+                    testID={`approve-team-${t.id}`}
+                    onPress={() => approveTeamMutation.mutate(t.id)}
+                    style={[styles.reqBtn, styles.reqBtnApprove]}
+                    hitSlop={8}
+                  >
+                    <Feather name="check" size={15} color="#0F0F23" />
+                  </Pressable>
+                  <Pressable
+                    testID={`reject-team-${t.id}`}
+                    onPress={() => Alert.alert("Reject Team", `Reject "${t.name}"?`, [
+                      { text: "Cancel", style: "cancel" },
+                      { text: "Reject", style: "destructive", onPress: () => rejectTeamMutation.mutate(t.id) },
+                    ])}
+                    style={[styles.reqBtn, styles.reqBtnReject]}
+                    hitSlop={8}
+                  >
+                    <Feather name="x" size={15} color="#FF3B30" />
+                  </Pressable>
+                </View>
+              </View>
+            ))}
+          </>
+        )}
+
         {/* Teams section */}
         <View style={[styles.sectionRow, { marginTop: 20, marginBottom: 12 }]}>
           <Text style={styles.sectionTitle}>Teams</Text>
-          {isAdmin && (
-            <Pressable
-              testID="create-team-btn"
-              onPress={() => setShowTeamModal(true)}
-              style={({ pressed }) => [styles.createBtn, { opacity: pressed ? 0.75 : 1 }]}
-            >
-              <Feather name="plus" size={14} color="#0F0F23" />
-              <Text style={styles.createBtnText}>Create Team</Text>
-            </Pressable>
-          )}
+          <Pressable
+            testID="create-team-btn"
+            onPress={() => setShowTeamModal(true)}
+            style={({ pressed }) => [styles.createBtn, { opacity: pressed ? 0.75 : 1 }]}
+          >
+            <Feather name="plus" size={14} color="#0F0F23" />
+            <Text style={styles.createBtnText}>{isAdmin ? "Create Team" : "Request Team"}</Text>
+          </Pressable>
         </View>
         {!teams || teams.length === 0 ? (
           <View style={styles.zonesEmpty}>
@@ -394,7 +465,10 @@ export default function BranchDetailScreen() {
       <Modal visible={showTeamModal} transparent animationType="fade" onRequestClose={() => setShowTeamModal(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Create Team</Text>
+            <Text style={styles.modalTitle}>{isAdmin ? "Create Team" : "Request Team"}</Text>
+            {!isAdmin && (
+              <Text style={styles.modalHelp}>Your request will be sent to the branch admin for approval.</Text>
+            )}
             <TextInput
               testID="team-name-input"
               value={teamName}
@@ -497,4 +571,5 @@ const styles = StyleSheet.create({
   modalBtnGhostText: { color: "#9CA3AF", fontSize: 14, fontFamily: "Inter_600SemiBold" },
   modalBtnPrimary: { backgroundColor: "#4CD964" },
   modalBtnPrimaryText: { color: "#0F0F23", fontSize: 14, fontFamily: "Inter_600SemiBold" },
+  modalHelp: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#9CA3AF", marginBottom: 12, marginTop: -8 },
 });

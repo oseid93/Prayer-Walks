@@ -39,9 +39,9 @@ A mobile street coverage tracking app built with Expo (React Native) and Express
 - `group_memberships` - User-group relationships
 - `churches` - Top-level church organizations with join codes
 - `church_memberships` - User-church relationships
-- `branches` - Sub-groups within churches
+- `branches` - Sub-groups within churches (includes `status` 'active'|'pending' for creation approval)
 - `branch_memberships` - User-branch relationships with `status` ('active'|'pending')
-- `teams` - Sub-groups within branches
+- `teams` - Sub-groups within branches (includes `status` 'active'|'pending' for creation approval)
 - `team_memberships` - User-team relationships with `status` ('active'|'pending')
 - `walking_sessions` - Walking session records with distance/duration
 - `route_points` - GPS coordinates recorded during sessions
@@ -50,6 +50,7 @@ A mobile street coverage tracking app built with Expo (React Native) and Express
 ### Admin Features
 - **Date-filtered stats** (church-detail, branch-detail, team-detail): Admins see filter pills (Last 7 Days / Last 30 Days / Custom date range). Stats query uses `?from=&to=` params.
 - **Join approval flow**: Joining a branch or team creates a `pending` membership. Branch/team admins see "Join Requests" panel with approve (✓) / reject (✗) buttons. Only `active` members appear in stats and member lists.
+- **Sub-group creation approval flow**: Any church member can request a new branch (any branch member can request a new team), but non-admin requests are saved with `status='pending'` and no membership row is inserted. Parent admins see a "Branch Requests" / "Team Requests" panel above the regular list. Approving flips status to `active` and inserts the requester as the new sub-group's admin. Rejecting deletes the pending row. Endpoints: `GET/DELETE /api/churches/:id/branch-creation-requests[/:branchId]`, `POST /api/churches/:id/branch-creation-requests/:branchId/approve` (and matching `/api/branches/:id/team-creation-requests/...`). `getBranchesByChurch` / `getTeamsByBranch` filter to `status='active'`, hiding pending sub-groups from the public list.
 
 ### Auth / Password Recovery
 - `POST /api/auth/register` - Accepts optional `email` field

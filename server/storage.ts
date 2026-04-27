@@ -80,9 +80,12 @@ export interface IStorage {
   getGroupStats(groupId: string, from?: Date, to?: Date): Promise<GroupStats>;
 
   // Branches
-  createBranch(churchId: string, name: string, userId: string): Promise<Branch>;
+  createBranch(churchId: string, name: string, userId: string, status?: "active" | "pending"): Promise<Branch>;
   getBranchesByChurch(churchId: string): Promise<Branch[]>;
   getBranchById(id: string): Promise<Branch | undefined>;
+  getPendingBranchesByChurch(churchId: string): Promise<Array<Branch & { requestedByName: string }>>;
+  approveBranchCreation(branchId: string): Promise<void>;
+  rejectBranchCreation(branchId: string): Promise<void>;
   getUserBranchInChurch(userId: string, churchId: string): Promise<Branch | undefined>;
   joinBranch(userId: string, branchId: string, churchId: string): Promise<BranchMembership>;
   leaveBranch(userId: string, branchId: string): Promise<void>;
@@ -99,9 +102,12 @@ export interface IStorage {
   rejectBranchRequest(userId: string, branchId: string): Promise<void>;
 
   // Teams
-  createTeam(branchId: string, name: string, userId: string): Promise<Team>;
+  createTeam(branchId: string, name: string, userId: string, status?: "active" | "pending"): Promise<Team>;
   getTeamsByBranch(branchId: string): Promise<Team[]>;
   getTeamById(id: string): Promise<Team | undefined>;
+  getPendingTeamsByBranch(branchId: string): Promise<Array<Team & { requestedByName: string }>>;
+  approveTeamCreation(teamId: string): Promise<void>;
+  rejectTeamCreation(teamId: string): Promise<void>;
   getUserTeamsInBranch(userId: string, branchId: string): Promise<Team[]>;
   joinTeam(userId: string, teamId: string): Promise<TeamMembership>;
   leaveTeam(userId: string, teamId: string): Promise<void>;
@@ -332,19 +338,62 @@ export class DatabaseStorage implements IStorage {
 
   // ─── Branches ─────────────────────────────────────────────────────────────
 
-  async createBranch(churchId: string, name: string, userId: string): Promise<Branch> {
-    const [branch] = await db.insert(branches).values({ churchId, name, createdById: userId }).returning();
-    await db.insert(branchMemberships).values({ userId, branchId: branch.id, churchId, role: "admin" });
+  async createBranch(churchId: string, name: string, userId: string, status: "active" | "pending" = "active"): Promise<Branch> {
+    const [branch] = await db.insert(branches).values({ churchId, name, createdById: userId, status }).returning();
+    if (status === "active") {
+      await db.insert(branchMemberships).values({ userId, branchId: branch.id, churchId, role: "admin" });
+    }
     return branch;
   }
 
   async getBranchesByChurch(churchId: string): Promise<Branch[]> {
-    return db.select().from(branches).where(eq(branches.churchId, churchId)).orderBy(asc(branches.createdAt));
+    return db
+      .select()
+      .from(branches)
+      .where(and(eq(branches.churchId, churchId), eq(branches.status, "active")))
+      .orderBy(asc(branches.createdAt));
   }
 
   async getBranchById(id: string): Promise<Branch | undefined> {
     const [branch] = await db.select().from(branches).where(eq(branches.id, id));
     return branch;
+  }
+
+  async getPendingBranchesByChurch(churchId: string): Promise<Array<Branch & { requestedByName: string }>> {
+    const pending = await db
+      .select()
+      .from(branches)
+      .where(and(eq(branches.churchId, churchId), eq(branches.status, "pending")))
+      .orderBy(asc(branches.createdAt));
+    const results: Array<Branch & { requestedByName: string }> = [];
+    for (const b of pending) {
+      const [u] = await db.select().from(users).where(eq(users.id, b.createdById));
+      results.push({ ...b, requestedByName: u?.displayName ?? "Unknown" });
+    }
+    return results;
+  }
+
+  async approveBranchCreation(branchId: string): Promise<void> {
+    const [branch] = await db.select().from(branches).where(eq(branches.id, branchId));
+    if (!branch) return;
+    // Make sure the requester isn't already in another branch in this church
+    await db
+      .delete(branchMemberships)
+      .where(and(eq(branchMemberships.userId, branch.createdById), eq(branchMemberships.churchId, branch.churchId)));
+    await db.update(branches).set({ status: "active" }).where(eq(branches.id, branchId));
+    await db.insert(branchMemberships).values({
+      userId: branch.createdById,
+      branchId: branch.id,
+      churchId: branch.churchId,
+      role: "admin",
+      status: "active",
+    });
+  }
+
+  async rejectBranchCreation(branchId: string): Promise<void> {
+    // Defensive cleanup of any memberships (none should exist for pending), then delete the branch
+    await db.delete(branchMemberships).where(eq(branchMemberships.branchId, branchId));
+    await db.delete(branches).where(eq(branches.id, branchId));
   }
 
   async getUserBranchInChurch(userId: string, churchId: string): Promise<Branch | undefined> {
@@ -483,19 +532,55 @@ export class DatabaseStorage implements IStorage {
 
   // ─── Teams ────────────────────────────────────────────────────────────────
 
-  async createTeam(branchId: string, name: string, userId: string): Promise<Team> {
-    const [team] = await db.insert(teams).values({ branchId, name, createdById: userId }).returning();
-    await db.insert(teamMemberships).values({ userId, teamId: team.id, role: "admin" });
+  async createTeam(branchId: string, name: string, userId: string, status: "active" | "pending" = "active"): Promise<Team> {
+    const [team] = await db.insert(teams).values({ branchId, name, createdById: userId, status }).returning();
+    if (status === "active") {
+      await db.insert(teamMemberships).values({ userId, teamId: team.id, role: "admin" });
+    }
     return team;
   }
 
   async getTeamsByBranch(branchId: string): Promise<Team[]> {
-    return db.select().from(teams).where(eq(teams.branchId, branchId)).orderBy(asc(teams.createdAt));
+    return db
+      .select()
+      .from(teams)
+      .where(and(eq(teams.branchId, branchId), eq(teams.status, "active")))
+      .orderBy(asc(teams.createdAt));
   }
 
   async getTeamById(id: string): Promise<Team | undefined> {
     const [team] = await db.select().from(teams).where(eq(teams.id, id));
     return team;
+  }
+
+  async getPendingTeamsByBranch(branchId: string): Promise<Array<Team & { requestedByName: string }>> {
+    const pending = await db
+      .select()
+      .from(teams)
+      .where(and(eq(teams.branchId, branchId), eq(teams.status, "pending")))
+      .orderBy(asc(teams.createdAt));
+    const results: Array<Team & { requestedByName: string }> = [];
+    for (const t of pending) {
+      const [u] = await db.select().from(users).where(eq(users.id, t.createdById));
+      results.push({ ...t, requestedByName: u?.displayName ?? "Unknown" });
+    }
+    return results;
+  }
+
+  async approveTeamCreation(teamId: string): Promise<void> {
+    const [team] = await db.select().from(teams).where(eq(teams.id, teamId));
+    if (!team) return;
+    await db.update(teams).set({ status: "active" }).where(eq(teams.id, teamId));
+    // Add the requester as team admin (no church-uniqueness constraint on teams)
+    await db
+      .insert(teamMemberships)
+      .values({ userId: team.createdById, teamId: team.id, role: "admin", status: "active" })
+      .onConflictDoNothing();
+  }
+
+  async rejectTeamCreation(teamId: string): Promise<void> {
+    await db.delete(teamMemberships).where(eq(teamMemberships.teamId, teamId));
+    await db.delete(teams).where(eq(teams.id, teamId));
   }
 
   async getUserTeamsInBranch(userId: string, branchId: string): Promise<Team[]> {

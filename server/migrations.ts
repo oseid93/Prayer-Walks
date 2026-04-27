@@ -123,6 +123,18 @@ export async function runMigrations(): Promise<void> {
         ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
     `);
 
+    // Add status column to branches for sub-group creation approval flow
+    await client.query(`
+      ALTER TABLE branches
+        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
+    `);
+
+    // Add status column to teams for sub-group creation approval flow
+    await client.query(`
+      ALTER TABLE teams
+        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
+    `);
+
     await client.query("COMMIT");
     console.log("Migrations completed successfully");
   } catch (err) {
