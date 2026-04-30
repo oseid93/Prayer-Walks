@@ -291,7 +291,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const direct = await storage.getBranchMemberRole(req.session.userId!, b.id);
           const role = direct ?? (isChurchAdmin ? "admin" : null);
           const memberCount = (await storage.getBranchMembers(b.id)).length;
-          return { ...b, role, memberCount };
+          const myStatus = await storage.hasBranchRequest(req.session.userId!, b.id);
+          return { ...b, role, memberCount, myStatus };
         }),
       );
       res.json(result);
@@ -545,7 +546,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const direct = await storage.getTeamMemberRole(req.session.userId!, t.id);
           const role = direct ?? (isBranchAdmin ? "admin" : null);
           const memberCount = (await storage.getTeamMembers(t.id)).length;
-          return { ...t, role, memberCount };
+          const myStatus = await storage.hasTeamRequest(req.session.userId!, t.id);
+          return { ...t, role, memberCount, myStatus };
         }),
       );
       res.json(result);

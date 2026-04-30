@@ -33,6 +33,7 @@ interface Branch {
   name: string;
   role: string | null;
   memberCount: number;
+  myStatus: "active" | "pending" | null;
 }
 
 interface Team {
@@ -41,6 +42,7 @@ interface Team {
   name: string;
   role: string | null;
   memberCount: number;
+  myStatus: "active" | "pending" | null;
 }
 
 interface PendingRequestsSummary {
@@ -517,6 +519,11 @@ export default function GroupsScreen() {
                               <Feather name="log-out" size={16} color="#FF3B30" />
                             </Pressable>
                           </>
+                        ) : team.myStatus === "pending" ? (
+                          <View style={styles.pendingPill} testID={`team-pending-${team.id}`}>
+                            <Feather name="clock" size={12} color="#FF9500" />
+                            <Text style={styles.pendingPillText}>Pending</Text>
+                          </View>
                         ) : (
                           <Pressable
                             onPress={() => joinTeamMutation.mutate(team.id)}
@@ -539,26 +546,36 @@ export default function GroupsScreen() {
               <>
                 <Text style={styles.pickBranchHint}>Pick a branch to join:</Text>
                 {branches.map((branch) => (
-                  <Pressable
+                  <View
                     key={branch.id}
-                    style={({ pressed }) => [styles.entityCard, { borderLeftColor: "#4CD964", opacity: pressed ? 0.85 : 1 }]}
+                    style={[styles.entityCard, { borderLeftColor: "#4CD964" }]}
                   >
                     <View style={styles.entityCardMain}>
                       <Text style={styles.entityName}>{branch.name}</Text>
                       <Text style={styles.memberCount}>{branch.memberCount} member{branch.memberCount !== 1 ? "s" : ""}</Text>
                     </View>
-                    <Pressable
-                      onPress={() => joinBranchMutation.mutate(branch.id)}
-                      disabled={joinBranchMutation.isPending}
-                      style={({ pressed }) => [styles.joinBtn, { opacity: pressed ? 0.7 : 1 }]}
-                    >
-                      {joinBranchMutation.isPending ? (
-                        <ActivityIndicator size="small" color="#4CD964" />
-                      ) : (
-                        <Text style={[styles.joinBtnText, { color: "#4CD964" }]}>Join</Text>
-                      )}
-                    </Pressable>
-                  </Pressable>
+                    {branch.myStatus === "pending" ? (
+                      <View
+                        style={[styles.pendingPill, { backgroundColor: "rgba(76,217,100,0.15)" }]}
+                        testID={`branch-pending-${branch.id}`}
+                      >
+                        <Feather name="clock" size={12} color="#4CD964" />
+                        <Text style={[styles.pendingPillText, { color: "#4CD964" }]}>Pending</Text>
+                      </View>
+                    ) : (
+                      <Pressable
+                        onPress={() => joinBranchMutation.mutate(branch.id)}
+                        disabled={joinBranchMutation.isPending}
+                        style={({ pressed }) => [styles.joinBtn, { opacity: pressed ? 0.7 : 1 }]}
+                      >
+                        {joinBranchMutation.isPending ? (
+                          <ActivityIndicator size="small" color="#4CD964" />
+                        ) : (
+                          <Text style={[styles.joinBtnText, { color: "#4CD964" }]}>Join</Text>
+                        )}
+                      </Pressable>
+                    )}
+                  </View>
                 ))}
               </>
             )}
@@ -814,6 +831,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 8, borderWidth: 1, borderColor: "rgba(255,149,0,0.3)",
   },
   joinBtnText: { fontSize: 13, fontFamily: "Inter_600SemiBold", color: "#FF9500" },
+
+  pendingPill: {
+    flexDirection: "row", alignItems: "center", gap: 4,
+    backgroundColor: "rgba(255,149,0,0.15)", borderRadius: 8,
+    paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: "rgba(255,149,0,0.3)",
+  },
+  pendingPillText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#FF9500" },
 
   pickBranchHint: { fontSize: 13, fontFamily: "Inter_400Regular", color: "#9CA3AF", marginBottom: 8 },
 
