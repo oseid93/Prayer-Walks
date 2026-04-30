@@ -23,6 +23,26 @@ function requireAuth(req: Request, res: Response, next: () => void) {
   next();
 }
 
+// Effective role helpers — church admins are treated as admins of every branch
+// in their church; branch admins (and church admins) are treated as admins of
+// every team in those branches.
+async function effectiveBranchRole(userId: string, branchId: string): Promise<string | undefined> {
+  const direct = await storage.getBranchMemberRole(userId, branchId);
+  if (direct) return direct;
+  const branch = await storage.getBranchById(branchId);
+  if (!branch) return undefined;
+  const churchRole = await storage.getMemberRole(userId, branch.churchId);
+  return churchRole === "admin" ? "admin" : undefined;
+}
+
+async function effectiveTeamRole(userId: string, teamId: string): Promise<string | undefined> {
+  const direct = await storage.getTeamMemberRole(userId, teamId);
+  if (direct) return direct;
+  const team = await storage.getTeamById(teamId);
+  if (!team) return undefined;
+  return effectiveBranchRole(userId, team.branchId);
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // Run DB migrations on startup
   await runMigrations();
@@ -264,11 +284,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isMember = await storage.isGroupMember(req.session.userId!, churchId);
       if (!isMember) return res.status(403).json({ message: "Not a church member" });
       const allBranches = await storage.getBranchesByChurch(churchId);
+      const churchRole = await storage.getMemberRole(req.session.userId!, churchId);
+      const isChurchAdmin = churchRole === "admin";
       const result = await Promise.all(
         allBranches.map(async (b) => {
-          const role = await storage.getBranchMemberRole(req.session.userId!, b.id);
+          const direct = await storage.getBranchMemberRole(req.session.userId!, b.id);
+          const role = direct ?? (isChurchAdmin ? "admin" : null);
           const memberCount = (await storage.getBranchMembers(b.id)).length;
-          return { ...b, role: role ?? null, memberCount };
+          return { ...b, role, memberCount };
         }),
       );
       res.json(result);
@@ -385,8 +408,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/branches/:branchId/stats", requireAuth, async (req: Request, res: Response) => {
     try {
-      const isMember = await storage.isBranchMember(req.session.userId!, req.params.branchId);
-      if (!isMember) return res.status(403).json({ message: "Not a branch member" });
+      const role = await effectiveBranchRole(req.session.userId!, req.params.branchId);
+      if (!role) return res.status(403).json({ message: "Not a branch member" });
       const from = req.query.from ? new Date(req.query.from as string) : undefined;
       const to = req.query.to ? new Date(req.query.to as string) : undefined;
       res.json(await storage.getBranchStats(req.params.branchId, from, to));
@@ -398,7 +421,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/branches/:branchId/requests", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId } = req.params;
-      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       res.json(await storage.getPendingBranchRequests(branchId));
     } catch (error) {
@@ -409,7 +432,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/branches/:branchId/requests/:userId/approve", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId, userId: targetUserId } = req.params;
-      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.approveBranchRequest(targetUserId, branchId);
       res.json({ success: true });
@@ -421,7 +444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/branches/:branchId/requests/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId, userId: targetUserId } = req.params;
-      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.rejectBranchRequest(targetUserId, branchId);
       res.json({ success: true });
@@ -432,7 +455,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/branches/:branchId/members", requireAuth, async (req: Request, res: Response) => {
     try {
-      const role = await storage.getBranchMemberRole(req.session.userId!, req.params.branchId);
+      const role = await effectiveBranchRole(req.session.userId!, req.params.branchId);
       if (!role) return res.status(403).json({ message: "Not a branch member" });
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       res.json(await storage.getBranchMembersWithStats(req.params.branchId));
@@ -446,7 +469,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { branchId, userId: targetUserId } = req.params;
       const { role } = req.body;
       if (!role || !["admin", "participant"].includes(role)) return res.status(400).json({ message: "Invalid role" });
-      const myRole = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const myRole = await effectiveBranchRole(req.session.userId!, branchId);
       if (myRole !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.setBranchMemberRole(targetUserId, branchId, role);
       res.json({ success: true });
@@ -458,7 +481,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/branches/:branchId/members/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId, userId: targetUserId } = req.params;
-      const myRole = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const myRole = await effectiveBranchRole(req.session.userId!, branchId);
       if (myRole !== "admin") return res.status(403).json({ message: "Admin access required" });
       if (targetUserId === req.session.userId) return res.status(400).json({ message: "Cannot remove yourself" });
       await storage.removeBranchMember(targetUserId, branchId);
@@ -471,8 +494,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Branch priority areas
   app.get("/api/branches/:branchId/priority-areas", requireAuth, async (req: Request, res: Response) => {
     try {
-      const isMember = await storage.isBranchMember(req.session.userId!, req.params.branchId);
-      if (!isMember) return res.status(403).json({ message: "Not a branch member" });
+      const role = await effectiveBranchRole(req.session.userId!, req.params.branchId);
+      if (!role) return res.status(403).json({ message: "Not a branch member" });
       const areas = await storage.getBranchPriorityAreas(req.params.branchId);
       res.json(areas.map((a) => ({ ...a, coordinates: JSON.parse(a.coordinates) })));
     } catch (error) {
@@ -483,7 +506,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/branches/:branchId/priority-areas", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId } = req.params;
-      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       const { name, coordinates, color } = req.body;
       if (!name || !coordinates || !Array.isArray(coordinates) || coordinates.length < 3) {
@@ -499,7 +522,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/branches/:branchId/priority-areas/:areaId", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId, areaId } = req.params;
-      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.deletePriorityArea(areaId, undefined, branchId);
       res.json({ success: true });
@@ -513,14 +536,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/branches/:branchId/teams", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId } = req.params;
-      const isMember = await storage.isBranchMember(req.session.userId!, branchId);
-      if (!isMember) return res.status(403).json({ message: "Not a branch member" });
+      const branchRole = await effectiveBranchRole(req.session.userId!, branchId);
+      if (!branchRole) return res.status(403).json({ message: "Not a branch member" });
       const allTeams = await storage.getTeamsByBranch(branchId);
+      const isBranchAdmin = branchRole === "admin";
       const result = await Promise.all(
         allTeams.map(async (t) => {
-          const role = await storage.getTeamMemberRole(req.session.userId!, t.id);
+          const direct = await storage.getTeamMemberRole(req.session.userId!, t.id);
+          const role = direct ?? (isBranchAdmin ? "admin" : null);
           const memberCount = (await storage.getTeamMembers(t.id)).length;
-          return { ...t, role: role ?? null, memberCount };
+          return { ...t, role, memberCount };
         }),
       );
       res.json(result);
@@ -533,7 +558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/branches/:branchId/teams", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId } = req.params;
-      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (!role) return res.status(403).json({ message: "Not a branch member" });
       const { name } = req.body;
       if (!name || !name.trim()) return res.status(400).json({ message: "Team name required" });
@@ -554,7 +579,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/branches/:branchId/team-creation-requests", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId } = req.params;
-      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Branch admin access required" });
       res.json(await storage.getPendingTeamsByBranch(branchId));
     } catch (error) {
@@ -565,7 +590,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/branches/:branchId/team-creation-requests/:teamId/approve", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId, teamId } = req.params;
-      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Branch admin access required" });
       const team = await storage.getTeamById(teamId);
       if (!team || team.branchId !== branchId || team.status !== "pending") {
@@ -582,7 +607,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/branches/:branchId/team-creation-requests/:teamId", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId, teamId } = req.params;
-      const role = await storage.getBranchMemberRole(req.session.userId!, branchId);
+      const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Branch admin access required" });
       const team = await storage.getTeamById(teamId);
       if (!team || team.branchId !== branchId || team.status !== "pending") {
@@ -598,8 +623,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/branches/:branchId/teams/:teamId/join", requireAuth, async (req: Request, res: Response) => {
     try {
       const { branchId, teamId } = req.params;
-      const isBranchMember = await storage.isBranchMember(req.session.userId!, branchId);
-      if (!isBranchMember) return res.status(403).json({ message: "Not a branch member" });
+      const role = await effectiveBranchRole(req.session.userId!, branchId);
+      if (!role) return res.status(403).json({ message: "Not a branch member" });
       const team = await storage.getTeamById(teamId);
       if (!team || team.branchId !== branchId || team.status !== "active") return res.status(404).json({ message: "Team not found" });
       const existing = await storage.hasTeamRequest(req.session.userId!, teamId);
@@ -626,8 +651,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/teams/:teamId/stats", requireAuth, async (req: Request, res: Response) => {
     try {
-      const isMember = await storage.isTeamMember(req.session.userId!, req.params.teamId);
-      if (!isMember) return res.status(403).json({ message: "Not a team member" });
+      const role = await effectiveTeamRole(req.session.userId!, req.params.teamId);
+      if (!role) return res.status(403).json({ message: "Not a team member" });
       const from = req.query.from ? new Date(req.query.from as string) : undefined;
       const to = req.query.to ? new Date(req.query.to as string) : undefined;
       res.json(await storage.getTeamStats(req.params.teamId, from, to));
@@ -639,7 +664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/teams/:teamId/requests", requireAuth, async (req: Request, res: Response) => {
     try {
       const { teamId } = req.params;
-      const role = await storage.getTeamMemberRole(req.session.userId!, teamId);
+      const role = await effectiveTeamRole(req.session.userId!, teamId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       res.json(await storage.getPendingTeamRequests(teamId));
     } catch (error) {
@@ -650,7 +675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/teams/:teamId/requests/:userId/approve", requireAuth, async (req: Request, res: Response) => {
     try {
       const { teamId, userId: targetUserId } = req.params;
-      const role = await storage.getTeamMemberRole(req.session.userId!, teamId);
+      const role = await effectiveTeamRole(req.session.userId!, teamId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.approveTeamRequest(targetUserId, teamId);
       res.json({ success: true });
@@ -662,7 +687,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/teams/:teamId/requests/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
       const { teamId, userId: targetUserId } = req.params;
-      const role = await storage.getTeamMemberRole(req.session.userId!, teamId);
+      const role = await effectiveTeamRole(req.session.userId!, teamId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.rejectTeamRequest(targetUserId, teamId);
       res.json({ success: true });
@@ -673,7 +698,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/teams/:teamId/members", requireAuth, async (req: Request, res: Response) => {
     try {
-      const role = await storage.getTeamMemberRole(req.session.userId!, req.params.teamId);
+      const role = await effectiveTeamRole(req.session.userId!, req.params.teamId);
       if (!role) return res.status(403).json({ message: "Not a team member" });
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       res.json(await storage.getTeamMembersWithStats(req.params.teamId));
@@ -687,7 +712,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const { teamId, userId: targetUserId } = req.params;
       const { role } = req.body;
       if (!role || !["admin", "participant"].includes(role)) return res.status(400).json({ message: "Invalid role" });
-      const myRole = await storage.getTeamMemberRole(req.session.userId!, teamId);
+      const myRole = await effectiveTeamRole(req.session.userId!, teamId);
       if (myRole !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.setTeamMemberRole(targetUserId, teamId, role);
       res.json({ success: true });
@@ -699,7 +724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.delete("/api/teams/:teamId/members/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
       const { teamId, userId: targetUserId } = req.params;
-      const myRole = await storage.getTeamMemberRole(req.session.userId!, teamId);
+      const myRole = await effectiveTeamRole(req.session.userId!, teamId);
       if (myRole !== "admin") return res.status(403).json({ message: "Admin access required" });
       if (targetUserId === req.session.userId) return res.status(400).json({ message: "Cannot remove yourself" });
       await storage.removeTeamMember(targetUserId, teamId);
@@ -711,8 +736,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/teams/:teamId/coverage", requireAuth, async (req: Request, res: Response) => {
     try {
-      const isMember = await storage.isTeamMember(req.session.userId!, req.params.teamId);
-      if (!isMember) return res.status(403).json({ message: "Not a team member" });
+      const role = await effectiveTeamRole(req.session.userId!, req.params.teamId);
+      if (!role) return res.status(403).json({ message: "Not a team member" });
       const points = await storage.getTeamRoutePoints(req.params.teamId);
       res.json(points);
     } catch (error) {

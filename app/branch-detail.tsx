@@ -449,7 +449,7 @@ export default function BranchDetailScreen() {
         ) : teams.map((t) => (
           <Pressable
             key={t.id}
-            onPress={() => router.push({ pathname: "/team-detail", params: { id: t.id, name: t.name, role: t.role ?? "participant" } })}
+            onPress={() => router.push({ pathname: "/team-detail", params: { id: t.id, name: t.name, role: t.role ?? (isAdmin ? "admin" : "participant") } })}
             style={({ pressed }) => [styles.teamCard, { opacity: pressed ? 0.75 : 1 }]}
           >
             <View style={styles.teamIcon}>

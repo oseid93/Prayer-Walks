@@ -329,7 +329,7 @@ export default function ChurchDetailScreen() {
         ) : branches.map((b) => (
           <Pressable
             key={b.id}
-            onPress={() => router.push({ pathname: "/branch-detail", params: { id: b.id, name: b.name, role: b.role ?? "participant" } })}
+            onPress={() => router.push({ pathname: "/branch-detail", params: { id: b.id, name: b.name, role: b.role ?? (isAdmin ? "admin" : "participant") } })}
             style={({ pressed }) => [styles.branchCard, { opacity: pressed ? 0.75 : 1 }]}
           >
             <View style={styles.branchIcon}>

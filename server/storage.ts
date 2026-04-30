@@ -347,7 +347,14 @@ export class DatabaseStorage implements IStorage {
   async createBranch(churchId: string, name: string, userId: string, status: "active" | "pending" = "active"): Promise<Branch> {
     const [branch] = await db.insert(branches).values({ churchId, name, createdById: userId, status }).returning();
     if (status === "active") {
-      await db.insert(branchMemberships).values({ userId, branchId: branch.id, churchId, role: "admin" });
+      // unique(user_id, church_id): a user can only be a direct member of one branch
+      // per church. If they already belong to one (e.g. a church admin who already
+      // created/joined a branch), skip the auto-membership — their church-admin
+      // status already grants effective admin rights on every branch.
+      await db
+        .insert(branchMemberships)
+        .values({ userId, branchId: branch.id, churchId, role: "admin" })
+        .onConflictDoNothing({ target: [branchMemberships.userId, branchMemberships.churchId] });
     }
     return branch;
   }
