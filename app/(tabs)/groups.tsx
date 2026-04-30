@@ -43,6 +43,12 @@ interface Team {
   memberCount: number;
 }
 
+interface PendingRequestsSummary {
+  total: number;
+  branches: Array<{ branchId: string; name: string; count: number }>;
+  teams: Array<{ teamId: string; name: string; count: number }>;
+}
+
 export default function GroupsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -90,6 +96,16 @@ export default function GroupsScreen() {
     queryKey: [`/api/branches/${myBranch?.id}/teams`],
     enabled: !!myBranch,
   });
+
+  const { data: pendingSummary, refetch: refetchPending } = useQuery<PendingRequestsSummary>({
+    queryKey: ["/api/my-pending-requests"],
+    enabled: !!user,
+  });
+
+  const pendingForBranch = (branchId: string) =>
+    pendingSummary?.branches.find((b) => b.branchId === branchId)?.count ?? 0;
+  const pendingForTeam = (teamId: string) =>
+    pendingSummary?.teams.find((t) => t.teamId === teamId)?.count ?? 0;
 
   const createChurchMutation = useMutation({
     mutationFn: async (name: string) => {
@@ -151,6 +167,7 @@ export default function GroupsScreen() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/churches/${church?.id}/branches`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-pending-requests"] });
     },
     onError: (err: any) => Alert.alert("Error", err.message || "Failed to join branch"),
   });
@@ -188,6 +205,7 @@ export default function GroupsScreen() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [`/api/branches/${myBranch?.id}/teams`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-pending-requests"] });
     },
     onError: (err: any) => Alert.alert("Error", err.message || "Failed to join team"),
   });
@@ -277,6 +295,7 @@ export default function GroupsScreen() {
     refetchChurches();
     if (church) refetchBranches();
     if (myBranch) refetchTeams();
+    refetchPending();
   };
 
   return (
@@ -414,6 +433,12 @@ export default function GroupsScreen() {
                     <Text style={styles.memberCount}>{myBranch.memberCount} member{myBranch.memberCount !== 1 ? "s" : ""}</Text>
                   </View>
                   <View style={styles.entityCardActions}>
+                    {isBranchAdmin && pendingForBranch(myBranch.id) > 0 && (
+                      <View style={styles.pendingBadge}>
+                        <Feather name="bell" size={10} color="#fff" />
+                        <Text style={styles.pendingBadgeText}>{pendingForBranch(myBranch.id)}</Text>
+                      </View>
+                    )}
                     {isBranchAdmin && (
                       <View style={styles.adminBadge}>
                         <Feather name="shield" size={10} color="#FFCC00" />
@@ -466,6 +491,12 @@ export default function GroupsScreen() {
                       <View style={styles.entityCardActions}>
                         {team.role !== null ? (
                           <>
+                            {team.role === "admin" && pendingForTeam(team.id) > 0 && (
+                              <View style={styles.pendingBadge}>
+                                <Feather name="bell" size={10} color="#fff" />
+                                <Text style={styles.pendingBadgeText}>{pendingForTeam(team.id)}</Text>
+                              </View>
+                            )}
                             {team.role === "admin" && (
                               <View style={styles.adminBadge}>
                                 <Feather name="shield" size={10} color="#FFCC00" />
@@ -771,6 +802,12 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,204,0,0.12)", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6,
   },
   adminBadgeText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#FFCC00" },
+
+  pendingBadge: {
+    flexDirection: "row", alignItems: "center", gap: 3,
+    backgroundColor: "#FF3B30", paddingHorizontal: 7, paddingVertical: 3, borderRadius: 6,
+  },
+  pendingBadgeText: { fontSize: 10, fontFamily: "Inter_700Bold", color: "#FFFFFF" },
 
   joinBtn: {
     backgroundColor: "rgba(255,149,0,0.15)", borderRadius: 8,

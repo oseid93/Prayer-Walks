@@ -100,13 +100,17 @@ export default function BranchDetailScreen() {
       queryClient.invalidateQueries({ queryKey: [`/api/branches/${id}/requests`] });
       queryClient.invalidateQueries({ queryKey: [`/api/branches/${id}/members`] });
       queryClient.invalidateQueries({ queryKey: [statsUrl] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-pending-requests"] });
     },
     onError: () => Alert.alert("Error", "Failed to approve request"),
   });
 
   const rejectMutation = useMutation({
     mutationFn: async (userId: string) => { await apiRequest("DELETE", `/api/branches/${id}/requests/${userId}`); },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [`/api/branches/${id}/requests`] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/branches/${id}/requests`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-pending-requests"] });
+    },
     onError: () => Alert.alert("Error", "Failed to reject request"),
   });
 

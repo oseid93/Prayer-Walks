@@ -740,6 +740,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/my-pending-requests", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const summary = await storage.getPendingRequestsSummary(req.session.userId!);
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // ─── Legacy group routes (backward compat) ───────────────────────────────
 
   app.get("/api/groups", requireAuth, async (req: Request, res: Response) => {

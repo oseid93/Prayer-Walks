@@ -1,11 +1,28 @@
 import { Tabs } from "expo-router";
 import { BlurView } from "expo-blur";
-import { Platform, StyleSheet, useColorScheme } from "react-native";
+import { Platform, StyleSheet } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import React from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useAuth } from "@/lib/auth-context";
+
+interface PendingRequestsSummary {
+  total: number;
+  branches: Array<{ branchId: string; name: string; count: number }>;
+  teams: Array<{ teamId: string; name: string; count: number }>;
+}
 
 export default function TabLayout() {
-  const isDark = true;
+  const { user } = useAuth();
+
+  const { data: pending } = useQuery<PendingRequestsSummary>({
+    queryKey: ["/api/my-pending-requests"],
+    enabled: !!user,
+    refetchInterval: 30000,
+    refetchOnWindowFocus: true,
+  });
+
+  const pendingCount = pending?.total ?? 0;
 
   return (
     <Tabs
@@ -59,6 +76,16 @@ export default function TabLayout() {
           tabBarIcon: ({ color, size }) => (
             <Feather name="user" size={size} color={color} />
           ),
+          tabBarBadge: pendingCount > 0 ? pendingCount : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: "#FF3B30",
+            color: "#FFFFFF",
+            fontSize: 11,
+            fontWeight: "700",
+            minWidth: 18,
+            height: 18,
+            lineHeight: 18,
+          },
         }}
       />
     </Tabs>

@@ -78,13 +78,17 @@ export default function TeamDetailScreen() {
       queryClient.invalidateQueries({ queryKey: [`/api/teams/${id}/requests`] });
       queryClient.invalidateQueries({ queryKey: [`/api/teams/${id}/members`] });
       queryClient.invalidateQueries({ queryKey: [statsUrl] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-pending-requests"] });
     },
     onError: () => Alert.alert("Error", "Failed to approve request"),
   });
 
   const rejectMutation = useMutation({
     mutationFn: async (userId: string) => { await apiRequest("DELETE", `/api/teams/${id}/requests/${userId}`); },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [`/api/teams/${id}/requests`] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/teams/${id}/requests`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-pending-requests"] });
+    },
     onError: () => Alert.alert("Error", "Failed to reject request"),
   });
 

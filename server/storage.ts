@@ -124,6 +124,12 @@ export interface IStorage {
   rejectTeamRequest(userId: string, teamId: string): Promise<void>;
   getMyTeams(userId: string): Promise<Array<Team & { role: string; branchName: string; churchId: string }>>;
   getMyAdminBranches(userId: string): Promise<Array<Branch & { role: string }>>;
+  getMyAdminTeams(userId: string): Promise<Array<Team & { role: string }>>;
+  getPendingRequestsSummary(userId: string): Promise<{
+    total: number;
+    branches: Array<{ branchId: string; name: string; count: number }>;
+    teams: Array<{ teamId: string; name: string; count: number }>;
+  }>;
 
   // Sessions
   createSession(userId: string): Promise<WalkingSession>;
@@ -694,6 +700,49 @@ export class DatabaseStorage implements IStorage {
       if (branch) result.push({ ...branch, role: m.role });
     }
     return result;
+  }
+
+  async getMyAdminTeams(userId: string): Promise<Array<Team & { role: string }>> {
+    const memberships = await db
+      .select()
+      .from(teamMemberships)
+      .where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.role, "admin"), eq(teamMemberships.status, "active")));
+    const result: Array<Team & { role: string }> = [];
+    for (const m of memberships) {
+      const team = await this.getTeamById(m.teamId);
+      if (team) result.push({ ...team, role: m.role });
+    }
+    return result;
+  }
+
+  async getPendingRequestsSummary(userId: string): Promise<{
+    total: number;
+    branches: Array<{ branchId: string; name: string; count: number }>;
+    teams: Array<{ teamId: string; name: string; count: number }>;
+  }> {
+    const adminBranches = await this.getMyAdminBranches(userId);
+    const adminTeams = await this.getMyAdminTeams(userId);
+
+    const branchCounts: Array<{ branchId: string; name: string; count: number }> = [];
+    let total = 0;
+    for (const b of adminBranches) {
+      const reqs = await this.getPendingBranchRequests(b.id);
+      if (reqs.length > 0) {
+        branchCounts.push({ branchId: b.id, name: b.name, count: reqs.length });
+        total += reqs.length;
+      }
+    }
+
+    const teamCounts: Array<{ teamId: string; name: string; count: number }> = [];
+    for (const t of adminTeams) {
+      const reqs = await this.getPendingTeamRequests(t.id);
+      if (reqs.length > 0) {
+        teamCounts.push({ teamId: t.id, name: t.name, count: reqs.length });
+        total += reqs.length;
+      }
+    }
+
+    return { total, branches: branchCounts, teams: teamCounts };
   }
 
   async getTeamMembersWithStats(teamId: string): Promise<MemberStats[]> {
