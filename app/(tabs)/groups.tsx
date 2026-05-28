@@ -88,7 +88,12 @@ export default function GroupsScreen() {
     enabled: !!church,
   });
 
-  const myBranch = branches?.find((b) => b.role !== null) ?? null;
+  // The user's actual direct branch membership (used for Teams section + leave action).
+  // A user can only be a direct member of one branch per church, identified by myStatus === 'active'.
+  const myBranch = branches?.find((b) => b.myStatus === "active") ?? null;
+  // Every branch the user has access to (direct membership OR elevated via church-admin role).
+  // For a church admin this is every branch; for a normal member it's just their one branch.
+  const accessibleBranches = branches?.filter((b) => b.role !== null) ?? [];
 
   const {
     data: teams,
@@ -424,35 +429,48 @@ export default function GroupsScreen() {
                   {isChurchAdmin ? "Create the first branch for your church." : "No branches yet — ask your church admin to create one."}
                 </Text>
               </View>
-            ) : myBranch ? (
+            ) : accessibleBranches.length > 0 ? (
               <>
-                <Pressable
-                  onPress={() => router.push({ pathname: "/branch-detail", params: { id: myBranch.id, name: myBranch.name, role: myBranch.role ?? "participant" } })}
-                  style={({ pressed }) => [styles.entityCard, { borderLeftColor: "#4CD964", opacity: pressed ? 0.85 : 1 }]}
-                >
-                  <View style={styles.entityCardMain}>
-                    <Text style={styles.entityName}>{myBranch.name}</Text>
-                    <Text style={styles.memberCount}>{myBranch.memberCount} member{myBranch.memberCount !== 1 ? "s" : ""}</Text>
-                  </View>
-                  <View style={styles.entityCardActions}>
-                    {isBranchAdmin && pendingForBranch(myBranch.id) > 0 && (
-                      <View style={styles.pendingBadge}>
-                        <Feather name="bell" size={10} color="#fff" />
-                        <Text style={styles.pendingBadgeText}>{pendingForBranch(myBranch.id)}</Text>
+                {accessibleBranches.map((branch) => {
+                  const isDirectMember = branch.myStatus === "active";
+                  const branchIsAdmin = branch.role === "admin";
+                  return (
+                    <Pressable
+                      key={branch.id}
+                      onPress={() => router.push({ pathname: "/branch-detail", params: { id: branch.id, name: branch.name, role: branch.role ?? "participant" } })}
+                      style={({ pressed }) => [styles.entityCard, { borderLeftColor: "#4CD964", opacity: pressed ? 0.85 : 1 }]}
+                    >
+                      <View style={styles.entityCardMain}>
+                        <Text style={styles.entityName}>{branch.name}</Text>
+                        <Text style={styles.memberCount}>{branch.memberCount} member{branch.memberCount !== 1 ? "s" : ""}</Text>
                       </View>
-                    )}
-                    {isBranchAdmin && (
-                      <View style={styles.adminBadge}>
-                        <Feather name="shield" size={10} color="#FFCC00" />
-                        <Text style={styles.adminBadgeText}>Admin</Text>
+                      <View style={styles.entityCardActions}>
+                        {branchIsAdmin && pendingForBranch(branch.id) > 0 && (
+                          <View style={styles.pendingBadge}>
+                            <Feather name="bell" size={10} color="#fff" />
+                            <Text style={styles.pendingBadgeText}>{pendingForBranch(branch.id)}</Text>
+                          </View>
+                        )}
+                        {branchIsAdmin && (
+                          <View style={styles.adminBadge}>
+                            <Feather name="shield" size={10} color="#FFCC00" />
+                            <Text style={styles.adminBadgeText}>Admin</Text>
+                          </View>
+                        )}
+                        {isDirectMember && (
+                          <Pressable onPress={handleLeaveBranch} style={styles.iconAction} hitSlop={8}>
+                            <Feather name="log-out" size={16} color="#FF3B30" />
+                          </Pressable>
+                        )}
                       </View>
-                    )}
-                    <Pressable onPress={handleLeaveBranch} style={styles.iconAction} hitSlop={8}>
-                      <Feather name="log-out" size={16} color="#FF3B30" />
                     </Pressable>
-                  </View>
-                </Pressable>
+                  );
+                })}
 
+                {/* Inline Teams section — only when the user has a single direct branch.
+                    For church admins with multiple branches, teams are managed by tapping into each branch. */}
+                {myBranch && accessibleBranches.length === 1 && (
+                  <>
                 {/* ── Teams ── */}
                 <View style={styles.levelHeader}>
                   <View style={styles.levelHeaderLeft}>
@@ -540,6 +558,8 @@ export default function GroupsScreen() {
                       </View>
                     </Pressable>
                   ))
+                )}
+                  </>
                 )}
               </>
             ) : (
