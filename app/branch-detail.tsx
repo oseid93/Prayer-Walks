@@ -11,7 +11,7 @@ import { setMapFocusZone } from "@/lib/map-focus";
 interface MemberStats { userId: string; displayName: string; role: string; sessionCount: number; totalDistance: number; totalDuration: number; }
 interface BranchStats { memberCount: number; sessionCount: number; totalDistance: number; totalDuration: number; }
 interface PriorityArea { id: string; name: string; color: string; coordinates: Array<{ latitude: number; longitude: number }>; }
-interface Team { id: string; name: string; role: string | null; memberCount: number; }
+interface Team { id: string; name: string; role: string | null; memberCount: number; sessionCount: number; totalDistance: number; }
 interface PendingRequest { userId: string; displayName: string; requestedAt: string; }
 interface PendingTeam { id: string; name: string; requestedByName: string; createdAt: string; }
 
@@ -446,7 +446,11 @@ export default function BranchDetailScreen() {
             <Feather name="users" size={24} color="#4B5563" />
             <Text style={styles.emptyText}>{isAdmin ? "No teams yet." : "No teams in this branch."}</Text>
           </View>
-        ) : teams.map((t) => (
+        ) : [...teams].sort((a, b) =>
+          sortBy === "walks" ? b.sessionCount - a.sessionCount :
+          sortBy === "distance" ? b.totalDistance - a.totalDistance :
+          a.name.localeCompare(b.name)
+        ).map((t) => (
           <Pressable
             key={t.id}
             onPress={() => router.push({ pathname: "/team-detail", params: { id: t.id, name: t.name, role: t.role ?? (isAdmin ? "admin" : "participant") } })}
@@ -457,7 +461,9 @@ export default function BranchDetailScreen() {
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.zoneName}>{t.name}</Text>
-              <Text style={styles.zonePoints}>{t.memberCount} {t.memberCount === 1 ? "member" : "members"}</Text>
+              <Text style={styles.zonePoints}>
+                {t.memberCount} {t.memberCount === 1 ? "member" : "members"} · {t.sessionCount} walks · {fmtDist(t.totalDistance)}
+              </Text>
             </View>
             <Feather name="chevron-right" size={18} color="#6B7280" />
           </Pressable>

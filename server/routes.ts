@@ -290,9 +290,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allBranches.map(async (b) => {
           const direct = await storage.getBranchMemberRole(req.session.userId!, b.id);
           const role = direct ?? (isChurchAdmin ? "admin" : null);
-          const memberCount = (await storage.getBranchMembers(b.id)).length;
+          const stats = await storage.getBranchStats(b.id);
           const myStatus = await storage.hasBranchRequest(req.session.userId!, b.id);
-          return { ...b, role, memberCount, myStatus };
+          return {
+            ...b,
+            role,
+            memberCount: stats.memberCount,
+            sessionCount: stats.sessionCount,
+            totalDistance: stats.totalDistance,
+            myStatus,
+          };
         }),
       );
       res.json(result);
@@ -545,9 +552,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         allTeams.map(async (t) => {
           const direct = await storage.getTeamMemberRole(req.session.userId!, t.id);
           const role = direct ?? (isBranchAdmin ? "admin" : null);
-          const memberCount = (await storage.getTeamMembers(t.id)).length;
+          const stats = await storage.getTeamStats(t.id);
           const myStatus = await storage.hasTeamRequest(req.session.userId!, t.id);
-          return { ...t, role, memberCount, myStatus };
+          return {
+            ...t,
+            role,
+            memberCount: stats.memberCount,
+            sessionCount: stats.sessionCount,
+            totalDistance: stats.totalDistance,
+            myStatus,
+          };
         }),
       );
       res.json(result);

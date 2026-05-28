@@ -16,7 +16,7 @@ interface MemberStats {
   totalDuration: number;
 }
 interface ChurchStats { memberCount: number; sessionCount: number; totalDistance: number; totalDuration: number; }
-interface Branch { id: string; name: string; role: string | null; memberCount: number; }
+interface Branch { id: string; name: string; role: string | null; memberCount: number; sessionCount: number; totalDistance: number; }
 interface PendingBranch { id: string; name: string; requestedByName: string; createdAt: string; }
 
 type DateFilter = "7d" | "30d" | "custom";
@@ -326,7 +326,11 @@ export default function ChurchDetailScreen() {
             <Feather name="git-branch" size={24} color="#4B5563" />
             <Text style={styles.memberMessageSub}>No branches yet.</Text>
           </View>
-        ) : branches.map((b) => (
+        ) : [...branches].sort((a, b) =>
+          sortBy === "walks" ? b.sessionCount - a.sessionCount :
+          sortBy === "distance" ? b.totalDistance - a.totalDistance :
+          a.name.localeCompare(b.name)
+        ).map((b) => (
           <Pressable
             key={b.id}
             onPress={() => router.push({ pathname: "/branch-detail", params: { id: b.id, name: b.name, role: b.role ?? (isAdmin ? "admin" : "participant") } })}
@@ -337,7 +341,9 @@ export default function ChurchDetailScreen() {
             </View>
             <View style={styles.memberInfo}>
               <Text style={styles.memberName}>{b.name}</Text>
-              <Text style={styles.memberStatText}>{b.memberCount} {b.memberCount === 1 ? "member" : "members"}</Text>
+              <Text style={styles.memberStatText}>
+                {b.memberCount} {b.memberCount === 1 ? "member" : "members"} · {b.sessionCount} walks · {fmtDist(b.totalDistance)}
+              </Text>
             </View>
             <Feather name="chevron-right" size={18} color="#6B7280" />
           </Pressable>
