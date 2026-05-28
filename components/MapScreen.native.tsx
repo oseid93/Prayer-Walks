@@ -607,21 +607,9 @@ export default function NativeMapScreen() {
         </View>
       )}
 
-      {/* Location permission banner */}
-      {permStatus !== "granted" && state === "idle" && !drawMode && (
-        <Pressable
-          onPress={() => Linking.openSettings()}
-          style={[styles.permBanner, { top: insets.top + 60 }]}
-        >
-          <Feather name="alert-triangle" size={14} color="#FFCC00" />
-          <Text style={styles.permBannerText}>Enable "Always" location in Settings for better tracking</Text>
-          <Feather name="chevron-right" size={14} color="#FFCC00" />
-        </Pressable>
-      )}
-
       {/* Date range filter pills — shown when idle and not drawing */}
       {state === "idle" && !drawMode && (
-        <View style={[styles.dateFilterRow, { top: insets.top + (permStatus !== "granted" ? 100 : 60) }]}>
+        <View style={[styles.dateFilterRow, { top: insets.top + 60 }]}>
           {(["week", "month", "all"] as const).map((f) => (
             <Pressable
               key={f}
@@ -634,6 +622,18 @@ export default function NativeMapScreen() {
             </Pressable>
           ))}
         </View>
+      )}
+
+      {/* Location permission banner — rendered below the filter pills so it never pushes them down */}
+      {permStatus !== "granted" && state === "idle" && !drawMode && (
+        <Pressable
+          onPress={() => Linking.openSettings()}
+          style={[styles.permBanner, { top: insets.top + 100 }]}
+        >
+          <Feather name="alert-triangle" size={14} color="#FFCC00" />
+          <Text style={styles.permBannerText}>Enable "Always" location in Settings for better tracking</Text>
+          <Feather name="chevron-right" size={14} color="#FFCC00" />
+        </Pressable>
       )}
 
       {/* Session stats overlay */}
