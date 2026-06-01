@@ -35,6 +35,20 @@ subtrees. Confirm patches re-applied (grep a sentinel line in the patched file).
   `.expand` for minimatch@10) AND a clean reinstall. Not exploitable (build-time glob
   parsing of trusted patterns). Leave it.
 
+## Overriding a transitive can delete a CLI binary the build relies on
+The deployment `build` step runs `server:build` = `esbuild server/index.ts ...`, which
+needs `node_modules/.bin/esbuild`. That bin only existed because esbuild was a *hoisted
+transitive* dep. Bumping esbuild via the `@esbuild-kit/core-utils` override changed
+dedup/hoisting so no esbuild hoisted to the top-level `.bin`, and the production build
+died with `sh: 1: esbuild: not found` (dev was unaffected — tsx has its own esbuild).
+**Rule:** if an npm *script* invokes a tool by bare name, that tool must be a *direct*
+dependency, never a transitive one — overrides/dedup can move or remove it. Fix here:
+add `esbuild` (^0.25.x, the patched line) to `dependencies` so the bin is guaranteed
+and the version stays non-vulnerable.
+**Why it bit late:** only the Cloud Run production build (fresh install + `--minify`
+server bundle) exercises `server:build`; the dev workflow uses `tsx` directly, so the
+break was invisible until publish.
+
 ## Remaining audit moderates are Expo SDK 54 tooling — need expo@56 (out of scope)
 Leftover `npm audit` moderates are all the Expo build/dev chain: @expo/cli,
 @expo/config(-plugins), @expo/metro-config, @expo/prebuild-config, expo, expo-asset,
