@@ -1,0 +1,1 @@
+- [npm overrides & Expo vulns](npm-overrides-and-expo-vulns.md) — fix transitive vulns via incremental overrides; never clean-reinstall (drifts tree, breaks patches); remaining moderates need expo@56.
