@@ -49,6 +49,17 @@ and the version stays non-vulnerable.
 server bundle) exercises `server:build`; the dev workflow uses `tsx` directly, so the
 break was invisible until publish.
 
+## @xmldom/xmldom override must stay on ^0.8.x, NOT 0.9.x
+`@expo/plist` (used during `expo prebuild` / Expo Launch iOS build) calls
+`DOMParser.parseFromString(xml)` with no mimeType argument. In @xmldom/xmldom 0.9.x,
+the mimeType became strictly required and throws `the provided mimeType "undefined" is
+not valid.` — crashing `npx expo prebuild --platform ios` during the App Store build.
+Fix: override to `^0.8.10` (resolves to 0.8.13, the latest 0.8.x as of 2025-06).
+All HIGH CVEs (CVE-2022-37616, CVE-2022-39353) were fixed in 0.8.6 — 0.8.13 is safe.
+**Why:** The 0.9.x series tightened the DOMParser API; @expo/plist has not been updated
+to pass a valid mimeType. Bumping to 0.9.x breaks iOS Expo Launch builds silently until
+the publish step.
+
 ## Remaining audit moderates are Expo SDK 54 tooling — need expo@56 (out of scope)
 Leftover `npm audit` moderates are all the Expo build/dev chain: @expo/cli,
 @expo/config(-plugins), @expo/metro-config, @expo/prebuild-config, expo, expo-asset,
