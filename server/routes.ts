@@ -414,6 +414,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.delete("/api/branches/:branchId/my-request", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { branchId } = req.params;
+      const status = await storage.hasBranchRequest(req.session.userId!, branchId);
+      if (status !== "pending") return res.status(404).json({ message: "No pending request" });
+      await storage.leaveBranch(req.session.userId!, branchId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.get("/api/branches/:branchId/stats", requireAuth, async (req: Request, res: Response) => {
     try {
       const role = await effectiveBranchRole(req.session.userId!, req.params.branchId);
@@ -659,6 +671,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isMember = await storage.isTeamMember(req.session.userId!, req.params.teamId);
       if (!isMember) return res.status(404).json({ message: "Not a team member" });
       await storage.leaveTeam(req.session.userId!, req.params.teamId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
+  app.delete("/api/teams/:teamId/my-request", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const { teamId } = req.params;
+      const status = await storage.hasTeamRequest(req.session.userId!, teamId);
+      if (status !== "pending") return res.status(404).json({ message: "No pending request" });
+      await storage.leaveTeam(req.session.userId!, teamId);
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });

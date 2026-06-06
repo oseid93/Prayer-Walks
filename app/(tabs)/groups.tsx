@@ -228,6 +228,30 @@ export default function GroupsScreen() {
     onError: (err: any) => Alert.alert("Error", err.message || "Failed to leave team"),
   });
 
+  const cancelBranchRequestMutation = useMutation({
+    mutationFn: async (branchId: string) => {
+      const res = await apiRequest("DELETE", `/api/branches/${branchId}/my-request`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/churches/${church?.id}/branches`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-pending-requests"] });
+    },
+    onError: (err: any) => Alert.alert("Error", err.message || "Failed to cancel request"),
+  });
+
+  const cancelTeamRequestMutation = useMutation({
+    mutationFn: async (teamId: string) => {
+      const res = await apiRequest("DELETE", `/api/teams/${teamId}/my-request`);
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [`/api/branches/${myBranch?.id}/teams`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/my-pending-requests"] });
+    },
+    onError: (err: any) => Alert.alert("Error", err.message || "Failed to cancel request"),
+  });
+
   const updateNameMutation = useMutation({
     mutationFn: async (displayName: string) => {
       const res = await apiRequest("PATCH", "/api/auth/profile", { displayName });
@@ -282,6 +306,28 @@ export default function GroupsScreen() {
       [
         { text: "Cancel", style: "cancel" },
         { text: "Leave", style: "destructive", onPress: () => leaveTeamMutation.mutate(team.id) },
+      ],
+    );
+  };
+
+  const handleCancelBranchRequest = (branch: Branch) => {
+    Alert.alert(
+      "Cancel Request",
+      `Withdraw your request to join "${branch.name}"?`,
+      [
+        { text: "Keep Waiting", style: "cancel" },
+        { text: "Cancel Request", style: "destructive", onPress: () => cancelBranchRequestMutation.mutate(branch.id) },
+      ],
+    );
+  };
+
+  const handleCancelTeamRequest = (team: Team) => {
+    Alert.alert(
+      "Cancel Request",
+      `Withdraw your request to join "${team.name}"?`,
+      [
+        { text: "Keep Waiting", style: "cancel" },
+        { text: "Cancel Request", style: "destructive", onPress: () => cancelTeamRequestMutation.mutate(team.id) },
       ],
     );
   };
@@ -538,10 +584,17 @@ export default function GroupsScreen() {
                             </Pressable>
                           </>
                         ) : team.myStatus === "pending" ? (
-                          <View style={styles.pendingPill} testID={`team-pending-${team.id}`}>
+                          <Pressable
+                            onPress={() => handleCancelTeamRequest(team)}
+                            disabled={cancelTeamRequestMutation.isPending}
+                            style={({ pressed }) => [styles.pendingPill, { opacity: pressed ? 0.6 : 1 }]}
+                            testID={`team-pending-${team.id}`}
+                            hitSlop={6}
+                          >
                             <Feather name="clock" size={12} color="#FF9500" />
                             <Text style={styles.pendingPillText}>Pending</Text>
-                          </View>
+                            <Feather name="x" size={12} color="#FF9500" />
+                          </Pressable>
                         ) : (
                           <Pressable
                             onPress={() => joinTeamMutation.mutate(team.id)}
@@ -575,13 +628,17 @@ export default function GroupsScreen() {
                       <Text style={styles.memberCount}>{branch.memberCount} member{branch.memberCount !== 1 ? "s" : ""}</Text>
                     </View>
                     {branch.myStatus === "pending" ? (
-                      <View
-                        style={[styles.pendingPill, { backgroundColor: "rgba(76,217,100,0.15)" }]}
+                      <Pressable
+                        onPress={() => handleCancelBranchRequest(branch)}
+                        disabled={cancelBranchRequestMutation.isPending}
+                        style={({ pressed }) => [styles.pendingPill, { backgroundColor: "rgba(76,217,100,0.15)", opacity: pressed ? 0.6 : 1 }]}
                         testID={`branch-pending-${branch.id}`}
+                        hitSlop={6}
                       >
                         <Feather name="clock" size={12} color="#4CD964" />
                         <Text style={[styles.pendingPillText, { color: "#4CD964" }]}>Pending</Text>
-                      </View>
+                        <Feather name="x" size={12} color="#4CD964" />
+                      </Pressable>
                     ) : (
                       <Pressable
                         onPress={() => joinBranchMutation.mutate(branch.id)}
