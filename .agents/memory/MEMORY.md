@@ -1,1 +1,2 @@
 - [npm overrides & Expo vulns](npm-overrides-and-expo-vulns.md) — fix transitive vulns via incremental overrides; never clean-reinstall (drifts tree, breaks patches); remaining moderates need expo@56.
+- [Migration concurrency on boot](migration-concurrency.md) — runMigrations runs on every boot; keep session-level pg_advisory_lock outside the txn + retry so concurrent boots don't deadlock.
