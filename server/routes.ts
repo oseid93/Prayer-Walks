@@ -986,6 +986,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ─── Tracking telemetry ──────────────────────────────────────────────────
+  // Lightweight diagnostics sink for the client background-tracking pipeline.
+  // Logs lifecycle events to the server console so the next tracking failure
+  // leaves a trail (background registration, merges, recovery, etc.).
+  app.post("/api/telemetry/tracking", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const userId = req.session.userId;
+      const events = Array.isArray(req.body?.events)
+        ? req.body.events
+        : [{ event: req.body?.event, data: req.body?.data }];
+      for (const e of events) {
+        if (!e || !e.event) continue;
+        console.log(
+          `[tracking-telemetry] user=${userId} event=${e.event}`,
+          e.data ? JSON.stringify(e.data) : "",
+        );
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   // ─── Sessions ─────────────────────────────────────────────────────────────
 
   app.post("/api/sessions", requireAuth, async (req: Request, res: Response) => {

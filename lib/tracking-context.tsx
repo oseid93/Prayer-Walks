@@ -11,6 +11,7 @@ import {
   BG_SESSION_KEY,
   BG_ACTIVE_KEY,
 } from "@/lib/location-task";
+import { logTracking } from "@/lib/tracking-log";
 
 interface TrackingPoint {
   latitude: number;
@@ -112,6 +113,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const distanceRef = useRef<number>(0);
   const currentPointsRef = useRef<TrackingPoint[]>([]);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+  const isStartingRef = useRef(false);
+  const recoveryRanRef = useRef(false);
 
   // Keep refs in sync with state so callbacks always see current values
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
@@ -133,6 +136,18 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       const prev = currentPointsRef.current;
       const existingTs = new Set(prev.map((p) => p.timestamp));
       const newPts = bgPoints.filter((p) => !existingTs.has(p.timestamp));
+
+      logTracking(
+        "foreground_merge",
+        {
+          buffered: bgPoints.length,
+          merged: newPts.length,
+          duplicates: bgPoints.length - newPts.length,
+          totalPoints: prev.length + newPts.length,
+        },
+        { remote: true },
+      );
+
       if (newPts.length === 0) return;
 
       // Merge and sort chronologically
@@ -175,8 +190,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           ),
         );
       }
-    } catch {
-      // Non-fatal
+    } catch (e: any) {
+      logTracking("foreground_merge_error", { message: e?.message ?? String(e) });
     }
   }, []);
 
@@ -194,10 +209,124 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     return () => sub.remove();
   }, [mergeBackgroundPoints]);
 
+  // Cold-start recovery: if a walk was still flagged active at last app exit
+  // (i.e. iOS suspended/terminated the app mid-walk), the in-memory tracking
+  // state is gone but the OS background task may have buffered points. On
+  // launch, flush those buffered points into the session and finalize it from
+  // its persisted points so the locked segment is saved instead of lost as a
+  // straight line. Runs once per app launch.
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+    if (recoveryRanRef.current) return;
+    recoveryRanRef.current = true;
+
+    (async () => {
+      try {
+        const [active, sid] = await Promise.all([
+          AsyncStorage.getItem(BG_ACTIVE_KEY),
+          AsyncStorage.getItem(BG_SESSION_KEY),
+        ]);
+        // Only recover a session left active at exit, and only on a fresh
+        // launch where no in-memory tracking is running.
+        if (
+          active !== "true" ||
+          !sid ||
+          isTrackingActiveRef.current ||
+          sessionIdRef.current
+        ) {
+          return;
+        }
+
+        logTracking("recovery_detected", { sessionId: sid }, { remote: true });
+
+        // Stop any lingering OS location task from the killed session.
+        try {
+          const isRegistered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+          if (isRegistered) await Location.stopLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+        } catch {}
+
+        // Flush background-buffered points into the session. If this fails
+        // (e.g. offline at launch), keep the flags so the next launch retries
+        // rather than discarding the buffered locked segment.
+        let bufferedCount = 0;
+        try {
+          const raw = await AsyncStorage.getItem(BG_POINTS_KEY);
+          if (raw) {
+            const bufferedPts: TrackingPoint[] = JSON.parse(raw);
+            bufferedCount = bufferedPts.length;
+            if (bufferedPts.length > 0) {
+              await apiRequest("POST", `/api/sessions/${sid}/points`, {
+                points: bufferedPts,
+              });
+            }
+          }
+        } catch (e: any) {
+          logTracking("recovery_flush_error", {
+            message: e?.message ?? String(e),
+            bufferedCount,
+          });
+          return; // keep flags for retry next launch
+        }
+
+        // Finalize from persisted points (distance + duration from timestamps).
+        try {
+          const res = await apiRequest("GET", `/api/sessions/${sid}/points`);
+          const points: Array<{
+            latitude: number;
+            longitude: number;
+            timestamp: string;
+          }> = await res.json();
+          const sorted = [...points].sort(
+            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+          );
+          let dist = 0;
+          for (let i = 1; i < sorted.length; i++) {
+            dist += haversineDistance(
+              sorted[i - 1].latitude, sorted[i - 1].longitude,
+              sorted[i].latitude, sorted[i].longitude,
+            );
+          }
+          let duration = 0;
+          if (sorted.length >= 2) {
+            duration = Math.max(
+              0,
+              Math.floor(
+                (new Date(sorted[sorted.length - 1].timestamp).getTime() -
+                  new Date(sorted[0].timestamp).getTime()) / 1000,
+              ),
+            );
+          }
+          await apiRequest("PUT", `/api/sessions/${sid}/end`, {
+            totalDistance: dist,
+            totalDuration: duration,
+          });
+          logTracking(
+            "recovery_finalized",
+            { sessionId: sid, points: sorted.length, distance: dist, duration, bufferedCount },
+            { remote: true },
+          );
+          queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/coverage"] });
+        } catch (e: any) {
+          logTracking("recovery_finalize_error", { message: e?.message ?? String(e) });
+          return; // keep flags for retry next launch
+        }
+
+        // Success — clear recovery flags so we don't re-process this session.
+        try {
+          await AsyncStorage.multiRemove([BG_SESSION_KEY, BG_ACTIVE_KEY, BG_POINTS_KEY]);
+        } catch {}
+      } catch (e: any) {
+        logTracking("recovery_error", { message: e?.message ?? String(e) });
+      }
+    })();
+  }, []);
+
   const promptBackgroundPermission = useCallback(async () => {
     if (Platform.OS === "web") return;
     try {
       const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
+      logTracking("bg_permission_status", { status: bgStatus });
       if (bgStatus === "granted") return;
       Alert.alert(
         "Enable 'Always On' Location",
@@ -209,6 +338,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
             onPress: async () => {
               try {
                 const { status: newBgStatus } = await Location.requestBackgroundPermissionsAsync();
+                logTracking("bg_permission_requested", { status: newBgStatus });
                 if (newBgStatus !== "granted") {
                   Alert.alert(
                     "Background Location Needed",
@@ -388,7 +518,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           remove: () => navigator.geolocation.clearWatch(watchId),
         } as any;
       }
-      return;
+      return { backgroundReady: false };
     }
 
     // Native: foreground watch (real-time UI updates while app is visible)
@@ -453,6 +583,15 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     // isTaskRegisteredAsync guard was unreliable and could silently skip
     // this call. The defineTask() in location-task.ts makes the task
     // available; startLocationUpdatesAsync is what registers it with iOS.
+    //
+    // OS-termination backstop (evaluated): iOS standard location updates do
+    // NOT relaunch the app after termination; only significant-location-change
+    // (SLC) monitoring does. expo-location does not expose SLC in Expo Go, so
+    // we cannot enable it here without ejecting. The implemented backstop is
+    // therefore the cold-start recovery effect above, which on next launch
+    // flushes any buffered points and finalizes an interrupted session so the
+    // locked segment is preserved rather than lost.
+    let backgroundReady = false;
     try {
       await Location.startLocationUpdatesAsync(BACKGROUND_LOCATION_TASK, {
         accuracy: Location.Accuracy.BestForNavigation,
@@ -469,8 +608,24 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         deferredUpdatesInterval: 0,
         deferredUpdatesDistance: 0,
       });
-    } catch {
+      // Confirm iOS actually registered the task and started delivering
+      // updates — startLocationUpdatesAsync can resolve without the task
+      // being live (e.g. missing "Always" permission / Expo Go).
+      const registered = await TaskManager.isTaskRegisteredAsync(BACKGROUND_LOCATION_TASK);
+      const started = await Location.hasStartedLocationUpdatesAsync(BACKGROUND_LOCATION_TASK);
+      backgroundReady = registered && started;
+      logTracking(
+        "bg_updates_started",
+        { registered, started, backgroundReady },
+        { remote: true },
+      );
+    } catch (e: any) {
       // startLocationUpdatesAsync not available in Expo Go — foreground-only tracking still works
+      logTracking(
+        "bg_updates_start_failed",
+        { message: e?.message ?? String(e) },
+        { remote: true },
+      );
     }
 
     try {
@@ -483,6 +638,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       });
       headingSubRef.current = headingSub;
     } catch {}
+
+    return { backgroundReady };
   }, []);
 
   const stopLocationWatch = useCallback(async () => {
@@ -505,11 +662,21 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const startTracking = useCallback(async () => {
+    // Guard against double-starts: a rapid double-tap (or re-render) could fire
+    // startTracking twice while state is still "idle", creating two sessions.
+    if (isStartingRef.current || isTrackingActiveRef.current || sessionIdRef.current) {
+      logTracking("start_ignored_duplicate");
+      return;
+    }
+    isStartingRef.current = true;
+
+    let bgGranted = false;
     if (Platform.OS !== "web") {
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status !== "granted") {
         const { status: newStatus } = await Location.requestForegroundPermissionsAsync();
         if (newStatus !== "granted") {
+          isStartingRef.current = false;
           Alert.alert(
             "Permission Required",
             "Location permission is needed to track your walks.",
@@ -519,6 +686,12 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         setHasPermission(true);
       }
       await promptBackgroundPermission();
+      try {
+        const { status: bgStatus } = await Location.getBackgroundPermissionsAsync();
+        bgGranted = bgStatus === "granted";
+      } catch {
+        bgGranted = false;
+      }
     }
 
     try {
@@ -539,6 +712,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       const sid = session.id;
       setSessionId(sid);
       sessionIdRef.current = sid;
+
+      logTracking("session_started", { sessionId: sid, bgGranted }, { remote: true });
 
       // Clear any stale background buffer from a previous session
       await AsyncStorage.multiRemove([BG_POINTS_KEY]);
@@ -571,15 +746,42 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       }, 1000);
 
       isTrackingActiveRef.current = true;
-      await startLocationWatch();
+      const watchResult = await startLocationWatch();
+      const backgroundReady = watchResult?.backgroundReady ?? false;
 
       syncIntervalRef.current = setInterval(() => {
         if (sessionIdRef.current) syncPoints(sessionIdRef.current);
       }, 15000);
 
       setState("tracking");
+
+      // Surface background-tracking readiness: if "Always" permission isn't
+      // granted or the OS background task didn't actually start, the walk will
+      // only be recorded while the screen is on — warn the user instead of
+      // silently producing a straight line across the locked segment.
+      if (Platform.OS !== "web" && (!bgGranted || !backgroundReady)) {
+        Alert.alert(
+          "Background Tracking Off",
+          "Your walk has started, but it may stop recording when your screen locks. For an accurate route, set location access to \"Always\" in Settings and keep the app open.",
+          [
+            { text: "Continue Anyway", style: "cancel" },
+            { text: "Open Settings", onPress: () => Linking.openSettings() },
+          ],
+        );
+      }
     } catch (err) {
       console.error("Failed to start tracking:", err);
+      logTracking("start_failed", {
+        message: err instanceof Error ? err.message : String(err),
+      });
+      // Roll back any partial start so a retry isn't blocked by the guard
+      isTrackingActiveRef.current = false;
+      setSessionId(null);
+      sessionIdRef.current = null;
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
       const msg = err instanceof Error ? err.message : "";
       const isNetwork =
         msg.toLowerCase().includes("network") ||
@@ -591,6 +793,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           ? "No internet connection. Please check your signal and try again."
           : "Something went wrong starting your session. Please try again.",
       );
+    } finally {
+      isStartingRef.current = false;
     }
   }, [syncPoints, startLocationWatch, promptBackgroundPermission]);
 
@@ -667,12 +871,14 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       try {
         await syncPoints(sessionId);
       } catch {}
+      let ended = false;
       for (let attempt = 0; attempt < 3; attempt++) {
         try {
           await apiRequest("PUT", `/api/sessions/${sessionId}/end`, {
             totalDistance: distanceRef.current,
             totalDuration: elapsedTime,
           });
+          ended = true;
           break;
         } catch {
           if (attempt < 2) {
@@ -682,6 +888,17 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           }
         }
       }
+      logTracking(
+        "session_stopped",
+        {
+          sessionId,
+          ended,
+          points: currentPointsRef.current.length,
+          distance: distanceRef.current,
+          duration: elapsedTime,
+        },
+        { remote: true },
+      );
     }
 
     // Clean up AsyncStorage
