@@ -78,6 +78,7 @@ export interface IStorage {
   removeChurchMemberCascade(userId: string, churchId: string): Promise<void>;
   getGroupMembersWithStats(groupId: string): Promise<MemberStats[]>;
   getGroupStats(groupId: string, from?: Date, to?: Date): Promise<GroupStats>;
+  updateGroupCode(groupId: string, code?: string): Promise<Group>;
 
   // Branches
   createBranch(churchId: string, name: string, userId: string, status?: "active" | "pending"): Promise<Branch>;
@@ -229,6 +230,12 @@ export class DatabaseStorage implements IStorage {
     const [group] = await db.insert(groups).values({ name, code, createdById: userId }).returning();
     await db.insert(groupMemberships).values({ userId, groupId: group.id, role: "admin" });
     return group;
+  }
+
+  async updateGroupCode(groupId: string, code?: string): Promise<Group> {
+    const newCode = (code ?? generateCode()).toUpperCase();
+    const [updated] = await db.update(groups).set({ code: newCode }).where(eq(groups.id, groupId)).returning();
+    return updated;
   }
 
   async getGroupByCode(code: string): Promise<Group | undefined> {

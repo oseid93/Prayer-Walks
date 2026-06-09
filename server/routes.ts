@@ -192,6 +192,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/churches/:id/code", requireAuth, async (req: Request, res: Response) => {
+    try {
+      const churchId = req.params.id;
+      const role = await storage.getMemberRole(req.session.userId!, churchId);
+      if (role !== "admin") return res.status(403).json({ message: "Church admin access required" });
+      const { code } = req.body;
+      if (code !== undefined) {
+        const trimmed = code.trim().toUpperCase();
+        if (trimmed.length < 3 || trimmed.length > 10) return res.status(400).json({ message: "Code must be 3–10 characters" });
+        if (!/^[A-Z0-9]+$/.test(trimmed)) return res.status(400).json({ message: "Code can only contain letters and numbers" });
+        const existing = await storage.getGroupByCode(trimmed);
+        if (existing && existing.id !== churchId) return res.status(409).json({ message: "That code is already in use" });
+      }
+      const group = await storage.updateGroupCode(churchId, code?.trim());
+      res.json(group);
+    } catch (error) {
+      console.error("Update church code error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+
   app.post("/api/churches/join", requireAuth, async (req: Request, res: Response) => {
     try {
       const { code } = req.body;

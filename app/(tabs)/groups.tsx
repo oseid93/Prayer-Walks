@@ -429,7 +429,7 @@ export default function GroupsScreen() {
             </View>
 
             <Pressable
-              onPress={() => router.push({ pathname: "/church-detail", params: { id: church.id, name: church.name, role: church.role } })}
+              onPress={() => router.push({ pathname: "/church-detail", params: { id: church.id, name: church.name, role: church.role, code: church.code } })}
               style={({ pressed }) => [styles.entityCard, { opacity: pressed ? 0.85 : 1 }]}
             >
               <View style={styles.entityCardMain}>

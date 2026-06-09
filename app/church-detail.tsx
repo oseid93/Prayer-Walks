@@ -42,12 +42,17 @@ function buildStatsUrl(base: string, filter: DateFilter | null, customFrom: stri
 }
 
 export default function ChurchDetailScreen() {
-  const { id, name, role } = useLocalSearchParams<{ id: string; name: string; role: string }>();
+  const { id, name, role, code: initialCode } = useLocalSearchParams<{ id: string; name: string; role: string; code: string }>();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { user } = useAuth();
   const webTopInset = Platform.OS === "web" ? 67 : 0;
   const isAdmin = role === "admin";
+
+  const [currentCode, setCurrentCode] = useState(initialCode ?? "");
+  const [showCodeModal, setShowCodeModal] = useState(false);
+  const [customCodeInput, setCustomCodeInput] = useState("");
+  const [codeError, setCodeError] = useState("");
 
   const [dateFilter, setDateFilter] = useState<DateFilter | null>(null);
   const [customFrom, setCustomFrom] = useState("");
@@ -108,6 +113,29 @@ export default function ChurchDetailScreen() {
     },
     onError: () => Alert.alert("Error", "Failed to remove member"),
   });
+
+  const updateCodeMutation = useMutation({
+    mutationFn: async (code?: string) => {
+      const res = await apiRequest("PATCH", `/api/churches/${id}/code`, code ? { code } : {});
+      return res.json() as Promise<{ code: string }>;
+    },
+    onSuccess: (data) => {
+      setCurrentCode(data.code);
+      setShowCodeModal(false);
+      setCustomCodeInput("");
+      setCodeError("");
+      queryClient.invalidateQueries({ queryKey: ["/api/churches"] });
+    },
+    onError: (err: Error) => setCodeError(err.message || "Failed to update code"),
+  });
+
+  const handleSaveCustomCode = () => {
+    const trimmed = customCodeInput.trim().toUpperCase();
+    if (trimmed.length < 3) { setCodeError("Code must be at least 3 characters"); return; }
+    if (!/^[A-Z0-9]+$/.test(trimmed)) { setCodeError("Letters and numbers only"); return; }
+    setCodeError("");
+    updateCodeMutation.mutate(trimmed);
+  };
 
   const [showBranchModal, setShowBranchModal] = useState(false);
   const [branchName, setBranchName] = useState("");
@@ -203,6 +231,25 @@ export default function ChurchDetailScreen() {
       )}
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
+        {/* ── Join Code (admin only) ── */}
+        {isAdmin && (
+          <View style={styles.codeCard}>
+            <View style={styles.codeCardLeft}>
+              <Feather name="key" size={14} color="#FFCC00" />
+              <Text style={styles.codeCardLabel}>Join Code</Text>
+            </View>
+            <Text style={styles.codeCardValue}>{currentCode}</Text>
+            <Pressable
+              onPress={() => { setCustomCodeInput(""); setCodeError(""); setShowCodeModal(true); }}
+              style={({ pressed }) => [styles.codeChangeBtn, { opacity: pressed ? 0.7 : 1 }]}
+              hitSlop={8}
+            >
+              <Feather name="edit-2" size={13} color="#FFCC00" />
+              <Text style={styles.codeChangeBtnText}>Change</Text>
+            </Pressable>
+          </View>
+        )}
+
         {isAdmin ? (
           <>
             <View style={styles.sectionRow}>
@@ -352,6 +399,55 @@ export default function ChurchDetailScreen() {
         <View style={{ height: 80 }} />
       </ScrollView>
 
+      {/* Code change modal */}
+      <Modal visible={showCodeModal} transparent animationType="fade" onRequestClose={() => setShowCodeModal(false)}>
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Change Join Code</Text>
+            <Text style={styles.modalHelp}>Current code: <Text style={{ color: "#FFCC00", fontFamily: "Inter_700Bold" }}>{currentCode}</Text></Text>
+
+            <Pressable
+              onPress={() => { setCodeError(""); updateCodeMutation.mutate(undefined); }}
+              disabled={updateCodeMutation.isPending}
+              style={({ pressed }) => [styles.regenerateBtn, { opacity: pressed || updateCodeMutation.isPending ? 0.7 : 1 }]}
+            >
+              <Feather name="refresh-cw" size={14} color="#0F0F23" />
+              <Text style={styles.regenerateBtnText}>Regenerate Randomly</Text>
+            </Pressable>
+
+            <Text style={styles.codeOrDivider}>— or set your own —</Text>
+
+            <TextInput
+              value={customCodeInput}
+              onChangeText={(t) => { setCustomCodeInput(t.toUpperCase()); setCodeError(""); }}
+              placeholder="e.g. GRACE1"
+              placeholderTextColor="#6B7280"
+              style={styles.modalInput}
+              autoCapitalize="characters"
+              maxLength={10}
+              returnKeyType="done"
+              onSubmitEditing={handleSaveCustomCode}
+            />
+            {codeError ? <Text style={styles.codeErrorText}>{codeError}</Text> : null}
+
+            <View style={styles.modalActions}>
+              <Pressable onPress={() => { setShowCodeModal(false); setCodeError(""); }} style={[styles.modalBtn, styles.modalBtnGhost]}>
+                <Text style={styles.modalBtnGhostText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleSaveCustomCode}
+                disabled={updateCodeMutation.isPending || !customCodeInput.trim()}
+                style={[styles.modalBtn, styles.modalBtnPrimary, (updateCodeMutation.isPending || !customCodeInput.trim()) && { opacity: 0.5 }]}
+              >
+                {updateCodeMutation.isPending
+                  ? <ActivityIndicator color="#0F0F23" />
+                  : <Text style={styles.modalBtnPrimaryText}>Save</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       <Modal visible={showBranchModal} transparent animationType="fade" onRequestClose={() => setShowBranchModal(false)}>
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
@@ -453,6 +549,16 @@ const styles = StyleSheet.create({
   badgePill: { backgroundColor: "#FF3B30", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 },
   badgePillText: { fontSize: 11, fontFamily: "Inter_700Bold", color: "#FFFFFF" },
   requestCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#1E1A35", borderRadius: 12, padding: 12, marginBottom: 8, gap: 12, borderWidth: 1, borderColor: "#2A2A50" },
+  codeCard: { flexDirection: "row", alignItems: "center", backgroundColor: "#1A1A35", borderRadius: 12, paddingHorizontal: 14, paddingVertical: 11, marginBottom: 14, gap: 8, borderWidth: 1, borderColor: "rgba(255,204,0,0.2)" },
+  codeCardLeft: { flexDirection: "row", alignItems: "center", gap: 6 },
+  codeCardLabel: { fontSize: 13, fontFamily: "Inter_500Medium", color: "#9CA3AF" },
+  codeCardValue: { flex: 1, fontSize: 18, fontFamily: "Inter_700Bold", color: "#FFCC00", letterSpacing: 2, textAlign: "center" },
+  codeChangeBtn: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: "rgba(255,204,0,0.12)", paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  codeChangeBtnText: { fontSize: 12, fontFamily: "Inter_600SemiBold", color: "#FFCC00" },
+  regenerateBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "#4CD964", borderRadius: 10, paddingVertical: 12, marginBottom: 16 },
+  regenerateBtnText: { fontSize: 14, fontFamily: "Inter_600SemiBold", color: "#0F0F23" },
+  codeOrDivider: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#4B5563", textAlign: "center", marginBottom: 12 },
+  codeErrorText: { fontSize: 12, fontFamily: "Inter_400Regular", color: "#FF3B30", marginTop: -10, marginBottom: 8 },
   reqBtn: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   reqBtnApprove: { backgroundColor: "#4CD964" },
   reqBtnReject: { backgroundColor: "rgba(255,59,48,0.12)" },
