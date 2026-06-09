@@ -134,7 +134,7 @@ export interface IStorage {
 
   // Sessions
   createSession(userId: string): Promise<WalkingSession>;
-  endSession(sessionId: string, totalDistance: number, totalDuration: number): Promise<WalkingSession | undefined>;
+  endSession(sessionId: string, userId: string, totalDistance: number, totalDuration: number): Promise<WalkingSession | undefined>;
   getUserSessions(userId: string): Promise<WalkingSession[]>;
   getSessionById(id: string): Promise<WalkingSession | undefined>;
   deleteSession(sessionId: string, userId: string): Promise<boolean>;
@@ -822,11 +822,11 @@ export class DatabaseStorage implements IStorage {
     return session;
   }
 
-  async endSession(sessionId: string, totalDistance: number, totalDuration: number): Promise<WalkingSession | undefined> {
+  async endSession(sessionId: string, userId: string, totalDistance: number, totalDuration: number): Promise<WalkingSession | undefined> {
     const [session] = await db
       .update(walkingSessions)
       .set({ endedAt: new Date(), totalDistance, totalDuration, isActive: false })
-      .where(eq(walkingSessions.id, sessionId))
+      .where(and(eq(walkingSessions.id, sessionId), eq(walkingSessions.userId, userId)))
       .returning();
     return session;
   }
@@ -880,7 +880,7 @@ export class DatabaseStorage implements IStorage {
   async getGroupRoutePoints(groupId: string): Promise<RoutePoint[]> {
     const memberIds = await this.getGroupMembers(groupId);
     if (memberIds.length === 0) return [];
-    const sessions = await db.select().from(walkingSessions).where(inArray(walkingSessions.userId, memberIds));
+    const sessions = await db.select().from(walkingSessions).where(and(inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)));
     if (sessions.length === 0) return [];
     const sessionIds = sessions.map((s) => s.id);
     return db.select().from(routePoints).where(inArray(routePoints.sessionId, sessionIds)).orderBy(asc(routePoints.timestamp));
@@ -889,7 +889,7 @@ export class DatabaseStorage implements IStorage {
   async getTeamRoutePoints(teamId: string): Promise<RoutePoint[]> {
     const memberIds = await this.getTeamMembers(teamId);
     if (memberIds.length === 0) return [];
-    const sessions = await db.select().from(walkingSessions).where(inArray(walkingSessions.userId, memberIds));
+    const sessions = await db.select().from(walkingSessions).where(and(inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)));
     if (sessions.length === 0) return [];
     const sessionIds = sessions.map((s) => s.id);
     return db.select().from(routePoints).where(inArray(routePoints.sessionId, sessionIds)).orderBy(asc(routePoints.timestamp));

@@ -9,6 +9,15 @@ import { insertUserSchema, insertRoutePointsSchema } from "../shared/schema";
 import { sendPasswordResetEmail } from "./email";
 import { runMigrations } from "./migrations";
 
+function opaqueSessionIds(points: Array<{ sessionId: string; latitude: number; longitude: number; timestamp: Date; accuracy?: number | null }>): Array<{ sessionId: string; latitude: number; longitude: number; timestamp: Date; accuracy?: number | null }> {
+  const idMap = new Map<string, string>();
+  let counter = 0;
+  return points.map((p) => {
+    if (!idMap.has(p.sessionId)) idMap.set(p.sessionId, String(++counter));
+    return { ...p, sessionId: idMap.get(p.sessionId)! };
+  });
+}
+
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 10,
@@ -828,7 +837,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const role = await effectiveTeamRole(req.session.userId!, req.params.teamId);
       if (!role) return res.status(403).json({ message: "Not a team member" });
       const points = await storage.getTeamRoutePoints(req.params.teamId);
-      res.json(points);
+      res.json(opaqueSessionIds(points));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -979,7 +988,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const isMember = await storage.isGroupMember(req.session.userId!, req.params.id);
       if (!isMember) return res.status(403).json({ message: "Not a member" });
-      res.json(await storage.getGroupRoutePoints(req.params.id));
+      res.json(opaqueSessionIds(await storage.getGroupRoutePoints(req.params.id)));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -1072,9 +1081,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/sessions/:id/end", requireAuth, async (req: Request, res: Response) => {
     try {
       const { totalDistance, totalDuration } = req.body;
-      const session = await storage.endSession(req.params.id, totalDistance || 0, totalDuration || 0);
+      const session = await storage.getSessionById(req.params.id);
       if (!session) return res.status(404).json({ message: "Session not found" });
-      res.json(session);
+      if (session.userId !== req.session.userId) return res.status(403).json({ message: "Not authorized" });
+      const ended = await storage.endSession(req.params.id, req.session.userId!, totalDistance || 0, totalDuration || 0);
+      if (!ended) return res.status(404).json({ message: "Session not found" });
+      res.json(ended);
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -1086,6 +1098,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!parsed.success) return res.status(400).json({ message: "Invalid route points data" });
       const session = await storage.getSessionById(req.params.id);
       if (!session) return res.status(404).json({ message: "Session not found" });
+      if (session.userId !== req.session.userId) return res.status(403).json({ message: "Not authorized" });
       const points = await storage.addRoutePoints(req.params.id, parsed.data.points);
       res.json(points);
     } catch (error) {
@@ -1095,6 +1108,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/sessions/:id/points", requireAuth, async (req: Request, res: Response) => {
     try {
+      const session = await storage.getSessionById(req.params.id);
+      if (!session) return res.status(404).json({ message: "Session not found" });
+      if (session.userId !== req.session.userId) return res.status(403).json({ message: "Not authorized" });
       const points = await storage.getSessionRoutePoints(req.params.id);
       res.json(points);
     } catch (error) {
