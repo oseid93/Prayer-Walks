@@ -6,6 +6,7 @@ import { createServer } from "node:http";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import bcrypt from "bcrypt";
+import rateLimit from "express-rate-limit";
 
 // shared/schema.ts
 import { sql } from "drizzle-orm";
@@ -18,7 +19,8 @@ import {
   integer,
   boolean,
   index,
-  unique
+  unique,
+  primaryKey
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -36,6 +38,7 @@ var passwordResetTokens = pgTable("password_reset_tokens", {
   token: text("token").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
   usedAt: timestamp("used_at"),
+  attempts: integer("attempts").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull()
 });
 var groups = pgTable("groups", {
@@ -85,7 +88,7 @@ var branchMemberships = pgTable(
   (table) => [
     index("branch_memberships_user_idx").on(table.userId),
     index("branch_memberships_branch_idx").on(table.branchId),
-    unique("branch_memberships_user_church_unique").on(table.userId, table.churchId)
+    unique("branch_memberships_user_branch_unique").on(table.userId, table.branchId)
   ]
 );
 var teams = pgTable(
@@ -182,6 +185,18 @@ var insertUserSchema = createInsertSchema(users).pick({
 var insertGroupSchema = createInsertSchema(groups).pick({
   name: true
 });
+var sessionOrgVisibility = pgTable(
+  "session_org_visibility",
+  {
+    sessionId: varchar("session_id").notNull().references(() => walkingSessions.id, { onDelete: "cascade" }),
+    orgType: text("org_type").notNull(),
+    orgId: varchar("org_id").notNull()
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.orgType, table.orgId] }),
+    index("session_org_visibility_org_idx").on(table.orgType, table.orgId)
+  ]
+);
 var insertSessionSchema = createInsertSchema(walkingSessions).pick({});
 var insertRoutePointSchema = z.object({
   latitude: z.number(),
@@ -195,7 +210,7 @@ var insertRoutePointsSchema = z.object({
 
 // server/storage.ts
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, and, inArray, desc, asc, gt, gte, lte } from "drizzle-orm";
+import { eq, and, inArray, desc, asc, gt, isNull, sql as sql2 } from "drizzle-orm";
 import pg from "pg";
 if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL is required");
@@ -245,8 +260,25 @@ var DatabaseStorage = class {
     const [resetToken] = await db.select().from(passwordResetTokens).where(and(eq(passwordResetTokens.token, token), gt(passwordResetTokens.expiresAt, /* @__PURE__ */ new Date())));
     return resetToken;
   }
+  async getLatestUnusedResetTokenForUser(userId) {
+    const [resetToken] = await db.select().from(passwordResetTokens).where(
+      and(
+        eq(passwordResetTokens.userId, userId),
+        gt(passwordResetTokens.expiresAt, /* @__PURE__ */ new Date()),
+        isNull(passwordResetTokens.usedAt)
+      )
+    ).orderBy(desc(passwordResetTokens.createdAt)).limit(1);
+    return resetToken;
+  }
   async markResetTokenUsed(tokenId) {
     await db.update(passwordResetTokens).set({ usedAt: /* @__PURE__ */ new Date() }).where(eq(passwordResetTokens.id, tokenId));
+  }
+  async incrementResetTokenAttempts(tokenId) {
+    const [updated] = await db.update(passwordResetTokens).set({ attempts: sql2`${passwordResetTokens.attempts} + 1` }).where(eq(passwordResetTokens.id, tokenId)).returning({ attempts: passwordResetTokens.attempts });
+    return updated?.attempts ?? 0;
+  }
+  async deleteResetToken(tokenId) {
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.id, tokenId));
   }
   // ─── Churches (groups) ────────────────────────────────────────────────────
   async createGroup(name, userId) {
@@ -254,6 +286,11 @@ var DatabaseStorage = class {
     const [group] = await db.insert(groups).values({ name, code, createdById: userId }).returning();
     await db.insert(groupMemberships).values({ userId, groupId: group.id, role: "admin" });
     return group;
+  }
+  async updateGroupCode(groupId, code) {
+    const newCode = (code ?? generateCode()).toUpperCase();
+    const [updated] = await db.update(groups).set({ code: newCode }).where(eq(groups.id, groupId)).returning();
+    return updated;
   }
   async getGroupByCode(code) {
     const [group] = await db.select().from(groups).where(eq(groups.code, code.toUpperCase()));
@@ -307,7 +344,14 @@ var DatabaseStorage = class {
     for (const membership of memberships) {
       const [user] = await db.select().from(users).where(eq(users.id, membership.userId));
       if (!user) continue;
-      const sessions = await db.select().from(walkingSessions).where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
+      const sessions = await db.select({ id: walkingSessions.id, totalDistance: walkingSessions.totalDistance, totalDuration: walkingSessions.totalDuration }).from(walkingSessions).innerJoin(
+        sessionOrgVisibility,
+        and(
+          eq(sessionOrgVisibility.sessionId, walkingSessions.id),
+          eq(sessionOrgVisibility.orgType, "church"),
+          eq(sessionOrgVisibility.orgId, groupId)
+        )
+      ).where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
       results.push({
         userId: membership.userId,
         displayName: user.displayName,
@@ -323,23 +367,36 @@ var DatabaseStorage = class {
     const memberships = await db.select().from(groupMemberships).where(eq(groupMemberships.groupId, groupId));
     const memberCount = memberships.length;
     if (memberCount === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
-    const memberIds = memberships.map((m) => m.userId);
-    const conditions = [inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)];
-    if (from) conditions.push(gte(walkingSessions.startedAt, from));
-    if (to) conditions.push(lte(walkingSessions.startedAt, to));
-    const sessions = await db.select().from(walkingSessions).where(and(...conditions));
+    const params = [groupId];
+    let dateFilter = "";
+    if (from) {
+      params.push(from);
+      dateFilter += ` AND ws.started_at >= $${params.length}`;
+    }
+    if (to) {
+      params.push(to);
+      dateFilter += ` AND ws.started_at <= $${params.length}`;
+    }
+    const result = await pool.query(
+      `SELECT COUNT(*) AS session_count, COALESCE(SUM(ws.total_distance), 0) AS total_distance, COALESCE(SUM(ws.total_duration), 0) AS total_duration
+       FROM walking_sessions ws
+       JOIN session_org_visibility sov ON sov.session_id = ws.id AND sov.org_type = 'church' AND sov.org_id = $1
+       WHERE ws.is_active = false${dateFilter}`,
+      params
+    );
+    const row = result.rows[0];
     return {
       memberCount,
-      sessionCount: sessions.length,
-      totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
-      totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0)
+      sessionCount: parseInt(row.session_count, 10),
+      totalDistance: parseFloat(row.total_distance),
+      totalDuration: parseInt(row.total_duration, 10)
     };
   }
   // ─── Branches ─────────────────────────────────────────────────────────────
   async createBranch(churchId, name, userId, status = "active") {
     const [branch] = await db.insert(branches).values({ churchId, name, createdById: userId, status }).returning();
     if (status === "active") {
-      await db.insert(branchMemberships).values({ userId, branchId: branch.id, churchId, role: "admin" }).onConflictDoNothing({ target: [branchMemberships.userId, branchMemberships.churchId] });
+      await db.insert(branchMemberships).values({ userId, branchId: branch.id, churchId, role: "admin" }).onConflictDoNothing({ target: [branchMemberships.userId, branchMemberships.branchId] });
     }
     return branch;
   }
@@ -362,15 +419,8 @@ var DatabaseStorage = class {
   async approveBranchCreation(branchId) {
     const [branch] = await db.select().from(branches).where(eq(branches.id, branchId));
     if (!branch) return;
-    await db.delete(branchMemberships).where(and(eq(branchMemberships.userId, branch.createdById), eq(branchMemberships.churchId, branch.churchId)));
     await db.update(branches).set({ status: "active" }).where(eq(branches.id, branchId));
-    await db.insert(branchMemberships).values({
-      userId: branch.createdById,
-      branchId: branch.id,
-      churchId: branch.churchId,
-      role: "admin",
-      status: "active"
-    });
+    await db.insert(branchMemberships).values({ userId: branch.createdById, branchId: branch.id, churchId: branch.churchId, role: "admin", status: "active" }).onConflictDoNothing({ target: [branchMemberships.userId, branchMemberships.branchId] });
   }
   async rejectBranchCreation(branchId) {
     await db.delete(branchMemberships).where(eq(branchMemberships.branchId, branchId));
@@ -385,7 +435,7 @@ var DatabaseStorage = class {
   async joinBranch(userId, branchId, churchId) {
     const [membership] = await db.insert(branchMemberships).values({ userId, branchId, churchId, role: "participant", status: "pending" }).onConflictDoNothing().returning();
     if (!membership) {
-      const [existing] = await db.select().from(branchMemberships).where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.churchId, churchId)));
+      const [existing] = await db.select().from(branchMemberships).where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
       return existing;
     }
     return membership;
@@ -429,7 +479,14 @@ var DatabaseStorage = class {
     for (const membership of memberships) {
       const [user] = await db.select().from(users).where(eq(users.id, membership.userId));
       if (!user) continue;
-      const sessions = await db.select().from(walkingSessions).where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
+      const sessions = await db.select({ id: walkingSessions.id, totalDistance: walkingSessions.totalDistance, totalDuration: walkingSessions.totalDuration }).from(walkingSessions).innerJoin(
+        sessionOrgVisibility,
+        and(
+          eq(sessionOrgVisibility.sessionId, walkingSessions.id),
+          eq(sessionOrgVisibility.orgType, "branch"),
+          eq(sessionOrgVisibility.orgId, branchId)
+        )
+      ).where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
       results.push({
         userId: membership.userId,
         displayName: user.displayName,
@@ -444,15 +501,29 @@ var DatabaseStorage = class {
   async getBranchStats(branchId, from, to) {
     const memberIds = await this.getBranchMembers(branchId);
     if (memberIds.length === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
-    const conditions = [inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)];
-    if (from) conditions.push(gte(walkingSessions.startedAt, from));
-    if (to) conditions.push(lte(walkingSessions.startedAt, to));
-    const sessions = await db.select().from(walkingSessions).where(and(...conditions));
+    const params = [branchId];
+    let dateFilter = "";
+    if (from) {
+      params.push(from);
+      dateFilter += ` AND ws.started_at >= $${params.length}`;
+    }
+    if (to) {
+      params.push(to);
+      dateFilter += ` AND ws.started_at <= $${params.length}`;
+    }
+    const result = await pool.query(
+      `SELECT COUNT(*) AS session_count, COALESCE(SUM(ws.total_distance), 0) AS total_distance, COALESCE(SUM(ws.total_duration), 0) AS total_duration
+       FROM walking_sessions ws
+       JOIN session_org_visibility sov ON sov.session_id = ws.id AND sov.org_type = 'branch' AND sov.org_id = $1
+       WHERE ws.is_active = false${dateFilter}`,
+      params
+    );
+    const row = result.rows[0];
     return {
       memberCount: memberIds.length,
-      sessionCount: sessions.length,
-      totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
-      totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0)
+      sessionCount: parseInt(row.session_count, 10),
+      totalDistance: parseFloat(row.total_distance),
+      totalDuration: parseInt(row.total_duration, 10)
     };
   }
   async getPendingBranchRequests(branchId) {
@@ -619,7 +690,14 @@ var DatabaseStorage = class {
     for (const membership of memberships) {
       const [user] = await db.select().from(users).where(eq(users.id, membership.userId));
       if (!user) continue;
-      const sessions = await db.select().from(walkingSessions).where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
+      const sessions = await db.select({ id: walkingSessions.id, totalDistance: walkingSessions.totalDistance, totalDuration: walkingSessions.totalDuration }).from(walkingSessions).innerJoin(
+        sessionOrgVisibility,
+        and(
+          eq(sessionOrgVisibility.sessionId, walkingSessions.id),
+          eq(sessionOrgVisibility.orgType, "team"),
+          eq(sessionOrgVisibility.orgId, teamId)
+        )
+      ).where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
       results.push({
         userId: membership.userId,
         displayName: user.displayName,
@@ -634,24 +712,51 @@ var DatabaseStorage = class {
   async getTeamStats(teamId, from, to) {
     const memberIds = await this.getTeamMembers(teamId);
     if (memberIds.length === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
-    const conditions = [inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)];
-    if (from) conditions.push(gte(walkingSessions.startedAt, from));
-    if (to) conditions.push(lte(walkingSessions.startedAt, to));
-    const sessions = await db.select().from(walkingSessions).where(and(...conditions));
+    const params = [teamId];
+    let dateFilter = "";
+    if (from) {
+      params.push(from);
+      dateFilter += ` AND ws.started_at >= $${params.length}`;
+    }
+    if (to) {
+      params.push(to);
+      dateFilter += ` AND ws.started_at <= $${params.length}`;
+    }
+    const result = await pool.query(
+      `SELECT COUNT(*) AS session_count, COALESCE(SUM(ws.total_distance), 0) AS total_distance, COALESCE(SUM(ws.total_duration), 0) AS total_duration
+       FROM walking_sessions ws
+       JOIN session_org_visibility sov ON sov.session_id = ws.id AND sov.org_type = 'team' AND sov.org_id = $1
+       WHERE ws.is_active = false${dateFilter}`,
+      params
+    );
+    const row = result.rows[0];
     return {
       memberCount: memberIds.length,
-      sessionCount: sessions.length,
-      totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
-      totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0)
+      sessionCount: parseInt(row.session_count, 10),
+      totalDistance: parseFloat(row.total_distance),
+      totalDuration: parseInt(row.total_duration, 10)
     };
   }
   // ─── Sessions ─────────────────────────────────────────────────────────────
   async createSession(userId) {
     const [session2] = await db.insert(walkingSessions).values({ userId }).returning();
+    const [churchMems, branchMems, teamMems] = await Promise.all([
+      db.select().from(groupMemberships).where(eq(groupMemberships.userId, userId)),
+      db.select().from(branchMemberships).where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.status, "active"))),
+      db.select().from(teamMemberships).where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.status, "active")))
+    ]);
+    const rows = [
+      ...churchMems.map((m) => ({ sessionId: session2.id, orgType: "church", orgId: m.groupId })),
+      ...branchMems.map((m) => ({ sessionId: session2.id, orgType: "branch", orgId: m.branchId })),
+      ...teamMems.map((m) => ({ sessionId: session2.id, orgType: "team", orgId: m.teamId }))
+    ];
+    if (rows.length > 0) {
+      await db.insert(sessionOrgVisibility).values(rows).onConflictDoNothing();
+    }
     return session2;
   }
-  async endSession(sessionId, totalDistance, totalDuration) {
-    const [session2] = await db.update(walkingSessions).set({ endedAt: /* @__PURE__ */ new Date(), totalDistance, totalDuration, isActive: false }).where(eq(walkingSessions.id, sessionId)).returning();
+  async endSession(sessionId, userId, totalDistance, totalDuration) {
+    const [session2] = await db.update(walkingSessions).set({ endedAt: /* @__PURE__ */ new Date(), totalDistance, totalDuration, isActive: false }).where(and(eq(walkingSessions.id, sessionId), eq(walkingSessions.userId, userId))).returning();
     return session2;
   }
   async getUserSessions(userId) {
@@ -689,20 +794,38 @@ var DatabaseStorage = class {
     return db.select().from(routePoints).where(inArray(routePoints.sessionId, sessionIds)).orderBy(asc(routePoints.timestamp));
   }
   async getGroupRoutePoints(groupId) {
-    const memberIds = await this.getGroupMembers(groupId);
-    if (memberIds.length === 0) return [];
-    const sessions = await db.select().from(walkingSessions).where(inArray(walkingSessions.userId, memberIds));
-    if (sessions.length === 0) return [];
-    const sessionIds = sessions.map((s) => s.id);
-    return db.select().from(routePoints).where(inArray(routePoints.sessionId, sessionIds)).orderBy(asc(routePoints.timestamp));
+    return db.select({
+      id: routePoints.id,
+      sessionId: routePoints.sessionId,
+      latitude: routePoints.latitude,
+      longitude: routePoints.longitude,
+      timestamp: routePoints.timestamp,
+      accuracy: routePoints.accuracy
+    }).from(routePoints).innerJoin(
+      sessionOrgVisibility,
+      and(
+        eq(routePoints.sessionId, sessionOrgVisibility.sessionId),
+        eq(sessionOrgVisibility.orgType, "church"),
+        eq(sessionOrgVisibility.orgId, groupId)
+      )
+    ).innerJoin(walkingSessions, and(eq(routePoints.sessionId, walkingSessions.id), eq(walkingSessions.isActive, false))).orderBy(asc(routePoints.timestamp));
   }
   async getTeamRoutePoints(teamId) {
-    const memberIds = await this.getTeamMembers(teamId);
-    if (memberIds.length === 0) return [];
-    const sessions = await db.select().from(walkingSessions).where(inArray(walkingSessions.userId, memberIds));
-    if (sessions.length === 0) return [];
-    const sessionIds = sessions.map((s) => s.id);
-    return db.select().from(routePoints).where(inArray(routePoints.sessionId, sessionIds)).orderBy(asc(routePoints.timestamp));
+    return db.select({
+      id: routePoints.id,
+      sessionId: routePoints.sessionId,
+      latitude: routePoints.latitude,
+      longitude: routePoints.longitude,
+      timestamp: routePoints.timestamp,
+      accuracy: routePoints.accuracy
+    }).from(routePoints).innerJoin(
+      sessionOrgVisibility,
+      and(
+        eq(routePoints.sessionId, sessionOrgVisibility.sessionId),
+        eq(sessionOrgVisibility.orgType, "team"),
+        eq(sessionOrgVisibility.orgId, teamId)
+      )
+    ).innerJoin(walkingSessions, and(eq(routePoints.sessionId, walkingSessions.id), eq(walkingSessions.isActive, false))).orderBy(asc(routePoints.timestamp));
   }
   // ─── Priority Areas ───────────────────────────────────────────────────────
   async getPriorityAreas(groupId) {
@@ -811,121 +934,250 @@ It expires in 1 hour. If you didn't request this, you can ignore this email.`,
 // server/migrations.ts
 import pg2 from "pg";
 var pool2 = new pg2.Pool({ connectionString: process.env.DATABASE_URL });
-async function runMigrations() {
+var MIGRATION_LOCK_KEY = 947563012;
+var MAX_ATTEMPTS = 3;
+var RETRY_DELAY_MS = 2e3;
+function sleep(ms) {
+  return new Promise((resolve2) => setTimeout(resolve2, ms));
+}
+async function applyMigrations(client) {
+  await client.query("BEGIN");
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS branches (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      church_id VARCHAR NOT NULL REFERENCES groups(id),
+      name TEXT NOT NULL,
+      created_by_id VARCHAR NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW() NOT NULL
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS branches_church_idx ON branches(church_id)
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS branch_memberships (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id VARCHAR NOT NULL REFERENCES users(id),
+      branch_id VARCHAR NOT NULL REFERENCES branches(id),
+      church_id VARCHAR NOT NULL REFERENCES groups(id),
+      role TEXT NOT NULL DEFAULT 'participant',
+      joined_at TIMESTAMP DEFAULT NOW() NOT NULL,
+      UNIQUE(user_id, church_id)
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS branch_memberships_user_idx ON branch_memberships(user_id)
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS branch_memberships_branch_idx ON branch_memberships(branch_id)
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS teams (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      branch_id VARCHAR NOT NULL REFERENCES branches(id),
+      name TEXT NOT NULL,
+      created_by_id VARCHAR NOT NULL REFERENCES users(id),
+      created_at TIMESTAMP DEFAULT NOW() NOT NULL
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS teams_branch_idx ON teams(branch_id)
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS team_memberships (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      user_id VARCHAR NOT NULL REFERENCES users(id),
+      team_id VARCHAR NOT NULL REFERENCES teams(id),
+      role TEXT NOT NULL DEFAULT 'participant',
+      joined_at TIMESTAMP DEFAULT NOW() NOT NULL,
+      UNIQUE(user_id, team_id)
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS team_memberships_user_idx ON team_memberships(user_id)
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS team_memberships_team_idx ON team_memberships(team_id)
+  `);
+  await client.query(`
+    ALTER TABLE priority_areas
+      ADD COLUMN IF NOT EXISTS branch_id VARCHAR REFERENCES branches(id)
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS priority_areas_branch_idx ON priority_areas(branch_id)
+  `);
+  await client.query(`
+    ALTER TABLE priority_areas
+      ALTER COLUMN group_id DROP NOT NULL
+  `).catch(() => {
+  });
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS session_notes (
+      id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
+      session_id VARCHAR NOT NULL REFERENCES walking_sessions(id),
+      user_id VARCHAR NOT NULL REFERENCES users(id),
+      text TEXT NOT NULL,
+      latitude REAL,
+      longitude REAL,
+      created_at TIMESTAMP DEFAULT NOW() NOT NULL
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS session_notes_session_idx ON session_notes(session_id)
+  `);
+  await client.query(`
+    ALTER TABLE branch_memberships
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
+  `);
+  await client.query(`
+    ALTER TABLE team_memberships
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
+  `);
+  await client.query(`
+    ALTER TABLE branches
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
+  `);
+  await client.query(`
+    ALTER TABLE teams
+      ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
+  `);
+  await client.query(`
+    ALTER TABLE branch_memberships
+      DROP CONSTRAINT IF EXISTS branch_memberships_user_id_church_id_key,
+      DROP CONSTRAINT IF EXISTS branch_memberships_user_church_unique
+  `).catch(() => {
+  });
+  await client.query(`
+    ALTER TABLE branch_memberships
+      ADD CONSTRAINT branch_memberships_user_branch_unique UNIQUE (user_id, branch_id)
+  `).catch(() => {
+  });
+  await client.query("COMMIT");
+}
+async function applyIdempotentAlters(client) {
+  await client.query("BEGIN");
+  await client.query(`
+    ALTER TABLE password_reset_tokens
+      ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0
+  `);
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS session_org_visibility (
+      session_id VARCHAR NOT NULL REFERENCES walking_sessions(id) ON DELETE CASCADE,
+      org_type   TEXT    NOT NULL,
+      org_id     VARCHAR NOT NULL,
+      PRIMARY KEY (session_id, org_type, org_id)
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS session_org_visibility_org_idx
+      ON session_org_visibility(org_type, org_id)
+  `);
+  await client.query(`
+    INSERT INTO session_org_visibility (session_id, org_type, org_id)
+    SELECT ws.id, 'church', gm.group_id
+    FROM walking_sessions ws
+    JOIN group_memberships gm ON gm.user_id = ws.user_id
+      AND ws.started_at >= gm.joined_at
+    ON CONFLICT DO NOTHING
+  `);
+  await client.query(`
+    INSERT INTO session_org_visibility (session_id, org_type, org_id)
+    SELECT ws.id, 'branch', bm.branch_id
+    FROM walking_sessions ws
+    JOIN branch_memberships bm ON bm.user_id = ws.user_id
+      AND bm.status = 'active'
+      AND ws.started_at >= bm.joined_at
+    ON CONFLICT DO NOTHING
+  `);
+  await client.query(`
+    INSERT INTO session_org_visibility (session_id, org_type, org_id)
+    SELECT ws.id, 'team', tm.team_id
+    FROM walking_sessions ws
+    JOIN team_memberships tm ON tm.user_id = ws.user_id
+      AND tm.status = 'active'
+      AND ws.started_at >= tm.joined_at
+    ON CONFLICT DO NOTHING
+  `);
+  await client.query("COMMIT");
+}
+async function runMigrationsOnce() {
   const client = await pool2.connect();
   try {
-    await client.query("BEGIN");
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS branches (
-        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
-        church_id VARCHAR NOT NULL REFERENCES groups(id),
-        name TEXT NOT NULL,
-        created_by_id VARCHAR NOT NULL REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT NOW() NOT NULL
-      )
-    `);
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS branches_church_idx ON branches(church_id)
-    `);
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS branch_memberships (
-        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id VARCHAR NOT NULL REFERENCES users(id),
-        branch_id VARCHAR NOT NULL REFERENCES branches(id),
-        church_id VARCHAR NOT NULL REFERENCES groups(id),
-        role TEXT NOT NULL DEFAULT 'participant',
-        joined_at TIMESTAMP DEFAULT NOW() NOT NULL,
-        UNIQUE(user_id, church_id)
-      )
-    `);
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS branch_memberships_user_idx ON branch_memberships(user_id)
-    `);
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS branch_memberships_branch_idx ON branch_memberships(branch_id)
-    `);
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS teams (
-        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
-        branch_id VARCHAR NOT NULL REFERENCES branches(id),
-        name TEXT NOT NULL,
-        created_by_id VARCHAR NOT NULL REFERENCES users(id),
-        created_at TIMESTAMP DEFAULT NOW() NOT NULL
-      )
-    `);
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS teams_branch_idx ON teams(branch_id)
-    `);
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS team_memberships (
-        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
-        user_id VARCHAR NOT NULL REFERENCES users(id),
-        team_id VARCHAR NOT NULL REFERENCES teams(id),
-        role TEXT NOT NULL DEFAULT 'participant',
-        joined_at TIMESTAMP DEFAULT NOW() NOT NULL,
-        UNIQUE(user_id, team_id)
-      )
-    `);
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS team_memberships_user_idx ON team_memberships(user_id)
-    `);
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS team_memberships_team_idx ON team_memberships(team_id)
-    `);
-    await client.query(`
-      ALTER TABLE priority_areas
-        ADD COLUMN IF NOT EXISTS branch_id VARCHAR REFERENCES branches(id)
-    `);
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS priority_areas_branch_idx ON priority_areas(branch_id)
-    `);
-    await client.query(`
-      ALTER TABLE priority_areas
-        ALTER COLUMN group_id DROP NOT NULL
-    `).catch(() => {
-    });
-    await client.query(`
-      CREATE TABLE IF NOT EXISTS session_notes (
-        id VARCHAR PRIMARY KEY DEFAULT gen_random_uuid(),
-        session_id VARCHAR NOT NULL REFERENCES walking_sessions(id),
-        user_id VARCHAR NOT NULL REFERENCES users(id),
-        text TEXT NOT NULL,
-        latitude REAL,
-        longitude REAL,
-        created_at TIMESTAMP DEFAULT NOW() NOT NULL
-      )
-    `);
-    await client.query(`
-      CREATE INDEX IF NOT EXISTS session_notes_session_idx ON session_notes(session_id)
-    `);
-    await client.query(`
-      ALTER TABLE branch_memberships
-        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
-    `);
-    await client.query(`
-      ALTER TABLE team_memberships
-        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
-    `);
-    await client.query(`
-      ALTER TABLE branches
-        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
-    `);
-    await client.query(`
-      ALTER TABLE teams
-        ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
-    `);
-    await client.query("COMMIT");
-    console.log("Migrations completed successfully");
-  } catch (err) {
-    await client.query("ROLLBACK");
-    console.error("Migration failed:", err);
-    throw err;
+    await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
+    try {
+      await applyMigrations(client).catch(async (err) => {
+        await client.query("ROLLBACK").catch(() => {
+        });
+        throw err;
+      });
+      await applyIdempotentAlters(client).catch(async (err) => {
+        await client.query("ROLLBACK").catch(() => {
+        });
+        throw err;
+      });
+      console.log("Migrations completed successfully");
+    } finally {
+      await client.query("SELECT pg_advisory_unlock($1)", [
+        MIGRATION_LOCK_KEY
+      ]).catch(() => {
+      });
+    }
   } finally {
     client.release();
   }
 }
+async function runMigrations() {
+  let lastErr;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      await runMigrationsOnce();
+      return;
+    } catch (err) {
+      lastErr = err;
+      console.error(
+        `Migration attempt ${attempt}/${MAX_ATTEMPTS} failed:`,
+        err
+      );
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(RETRY_DELAY_MS);
+      }
+    }
+  }
+  console.error("Migrations failed after all retries:", lastErr);
+  throw lastErr;
+}
 
 // server/routes.ts
+function opaqueSessionIds(points) {
+  const idMap = /* @__PURE__ */ new Map();
+  let counter = 0;
+  return points.map((p) => {
+    if (!idMap.has(p.sessionId)) idMap.set(p.sessionId, String(++counter));
+    return { ...p, sessionId: idMap.get(p.sessionId) };
+  });
+}
+var loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1e3,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many login attempts. Please try again later." },
+  skipSuccessfulRequests: true
+});
+var forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1e3,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many password reset requests. Please try again later." }
+});
+var resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1e3,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many reset attempts. Please try again later." }
+});
 var PgStore = connectPg(session);
 function requireAuth(req, res, next) {
   if (!req.session.userId) {
@@ -982,7 +1234,7 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-  app2.post("/api/auth/login", async (req, res) => {
+  app2.post("/api/auth/login", loginLimiter, async (req, res) => {
     try {
       const { username, password } = req.body;
       if (!username || !password) return res.status(400).json({ message: "Username and password required" });
@@ -1020,7 +1272,7 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-  app2.post("/api/auth/forgot-password", async (req, res) => {
+  app2.post("/api/auth/forgot-password", forgotPasswordLimiter, async (req, res) => {
     try {
       const { email } = req.body;
       if (!email) return res.status(400).json({ message: "Email required" });
@@ -1037,7 +1289,7 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
-  app2.post("/api/auth/reset-password", async (req, res) => {
+  app2.post("/api/auth/reset-password", resetPasswordLimiter, async (req, res) => {
     try {
       const { email, code, newPassword } = req.body;
       if (!email || !code || !newPassword) return res.status(400).json({ message: "Email, code, and new password are required" });
@@ -1045,7 +1297,16 @@ async function registerRoutes(app2) {
       const user = await storage.getUserByEmail(email.toLowerCase().trim());
       if (!user) return res.status(400).json({ message: "Invalid or expired code" });
       const resetToken = await storage.getValidResetToken(code);
-      if (!resetToken || resetToken.userId !== user.id || resetToken.usedAt) return res.status(400).json({ message: "Invalid or expired code" });
+      if (!resetToken || resetToken.userId !== user.id || resetToken.usedAt) {
+        const candidateToken = await storage.getLatestUnusedResetTokenForUser(user.id);
+        if (candidateToken) {
+          const attempts = await storage.incrementResetTokenAttempts(candidateToken.id);
+          if (attempts >= 5) {
+            await storage.deleteResetToken(candidateToken.id);
+          }
+        }
+        return res.status(400).json({ message: "Invalid or expired code" });
+      }
       const hashed = await bcrypt.hash(newPassword, 10);
       await storage.updateUserPassword(user.id, hashed);
       await storage.markResetTokenUsed(resetToken.id);
@@ -1078,6 +1339,26 @@ async function registerRoutes(app2) {
       res.json(group);
     } catch (error) {
       console.error("Create church error:", error);
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  app2.patch("/api/churches/:id/code", requireAuth, async (req, res) => {
+    try {
+      const churchId = req.params.id;
+      const role = await storage.getMemberRole(req.session.userId, churchId);
+      if (role !== "admin") return res.status(403).json({ message: "Church admin access required" });
+      const { code } = req.body;
+      if (code !== void 0) {
+        const trimmed = code.trim().toUpperCase();
+        if (trimmed.length < 3 || trimmed.length > 10) return res.status(400).json({ message: "Code must be 3\u201310 characters" });
+        if (!/^[A-Z0-9]+$/.test(trimmed)) return res.status(400).json({ message: "Code can only contain letters and numbers" });
+        const existing = await storage.getGroupByCode(trimmed);
+        if (existing && existing.id !== churchId) return res.status(409).json({ message: "That code is already in use" });
+      }
+      const group = await storage.updateGroupCode(churchId, code?.trim());
+      res.json(group);
+    } catch (error) {
+      console.error("Update church code error:", error);
       res.status(500).json({ message: "Internal server error" });
     }
   });
@@ -1200,10 +1481,6 @@ async function registerRoutes(app2) {
         const branch2 = await storage.createBranch(churchId, name.trim(), req.session.userId, "active");
         return res.json({ ...branch2, status: "active" });
       }
-      const currentBranch = await storage.getUserBranchInChurch(req.session.userId, churchId);
-      if (currentBranch) {
-        return res.status(409).json({ message: "You are already in a branch. Leave it first to request a new one." });
-      }
       const branch = await storage.createBranch(churchId, name.trim(), req.session.userId, "pending");
       res.json({ ...branch, status: "pending", message: "Your branch request has been sent and is awaiting church admin approval." });
     } catch (error) {
@@ -1259,10 +1536,6 @@ async function registerRoutes(app2) {
       if (!isMember) return res.status(403).json({ message: "Not a church member" });
       const branch = await storage.getBranchById(branchId);
       if (!branch || branch.churchId !== churchId || branch.status !== "active") return res.status(404).json({ message: "Branch not found" });
-      const currentBranch = await storage.getUserBranchInChurch(req.session.userId, churchId);
-      if (currentBranch && currentBranch.id !== branchId) {
-        return res.status(409).json({ message: "You are already in a branch. Leave it first." });
-      }
       const existing = await storage.hasBranchRequest(req.session.userId, branchId);
       if (existing === "pending") return res.json({ status: "pending", message: "Your join request is awaiting approval." });
       if (existing === "active") return res.json({ status: "active", message: "Already a member." });
@@ -1278,6 +1551,17 @@ async function registerRoutes(app2) {
       const { branchId } = req.params;
       const isMember = await storage.isBranchMember(req.session.userId, branchId);
       if (!isMember) return res.status(404).json({ message: "Not a branch member" });
+      await storage.leaveBranch(req.session.userId, branchId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
+  app2.delete("/api/branches/:branchId/my-request", requireAuth, async (req, res) => {
+    try {
+      const { branchId } = req.params;
+      const status = await storage.hasBranchRequest(req.session.userId, branchId);
+      if (status !== "pending") return res.status(404).json({ message: "No pending request" });
       await storage.leaveBranch(req.session.userId, branchId);
       res.json({ success: true });
     } catch (error) {
@@ -1513,6 +1797,17 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
+  app2.delete("/api/teams/:teamId/my-request", requireAuth, async (req, res) => {
+    try {
+      const { teamId } = req.params;
+      const status = await storage.hasTeamRequest(req.session.userId, teamId);
+      if (status !== "pending") return res.status(404).json({ message: "No pending request" });
+      await storage.leaveTeam(req.session.userId, teamId);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
   app2.get("/api/teams/:teamId/stats", requireAuth, async (req, res) => {
     try {
       const role = await effectiveTeamRole(req.session.userId, req.params.teamId);
@@ -1596,7 +1891,7 @@ async function registerRoutes(app2) {
       const role = await effectiveTeamRole(req.session.userId, req.params.teamId);
       if (!role) return res.status(403).json({ message: "Not a team member" });
       const points = await storage.getTeamRoutePoints(req.params.teamId);
-      res.json(points);
+      res.json(opaqueSessionIds(points));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -1730,7 +2025,7 @@ async function registerRoutes(app2) {
     try {
       const isMember = await storage.isGroupMember(req.session.userId, req.params.id);
       if (!isMember) return res.status(403).json({ message: "Not a member" });
-      res.json(await storage.getGroupRoutePoints(req.params.id));
+      res.json(opaqueSessionIds(await storage.getGroupRoutePoints(req.params.id)));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -1779,6 +2074,22 @@ async function registerRoutes(app2) {
       res.status(500).json({ message: "Internal server error" });
     }
   });
+  app2.post("/api/telemetry/tracking", requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId;
+      const events = Array.isArray(req.body?.events) ? req.body.events : [{ event: req.body?.event, data: req.body?.data }];
+      for (const e of events) {
+        if (!e || !e.event) continue;
+        console.log(
+          `[tracking-telemetry] user=${userId} event=${e.event}`,
+          e.data ? JSON.stringify(e.data) : ""
+        );
+      }
+      res.json({ ok: true });
+    } catch (error) {
+      res.status(500).json({ message: "Internal server error" });
+    }
+  });
   app2.post("/api/sessions", requireAuth, async (req, res) => {
     try {
       const session2 = await storage.createSession(req.session.userId);
@@ -1790,9 +2101,12 @@ async function registerRoutes(app2) {
   app2.put("/api/sessions/:id/end", requireAuth, async (req, res) => {
     try {
       const { totalDistance, totalDuration } = req.body;
-      const session2 = await storage.endSession(req.params.id, totalDistance || 0, totalDuration || 0);
+      const session2 = await storage.getSessionById(req.params.id);
       if (!session2) return res.status(404).json({ message: "Session not found" });
-      res.json(session2);
+      if (session2.userId !== req.session.userId) return res.status(403).json({ message: "Not authorized" });
+      const ended = await storage.endSession(req.params.id, req.session.userId, totalDistance || 0, totalDuration || 0);
+      if (!ended) return res.status(404).json({ message: "Session not found" });
+      res.json(ended);
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -1803,6 +2117,7 @@ async function registerRoutes(app2) {
       if (!parsed.success) return res.status(400).json({ message: "Invalid route points data" });
       const session2 = await storage.getSessionById(req.params.id);
       if (!session2) return res.status(404).json({ message: "Session not found" });
+      if (session2.userId !== req.session.userId) return res.status(403).json({ message: "Not authorized" });
       const points = await storage.addRoutePoints(req.params.id, parsed.data.points);
       res.json(points);
     } catch (error) {
@@ -1811,6 +2126,9 @@ async function registerRoutes(app2) {
   });
   app2.get("/api/sessions/:id/points", requireAuth, async (req, res) => {
     try {
+      const session2 = await storage.getSessionById(req.params.id);
+      if (!session2) return res.status(404).json({ message: "Session not found" });
+      if (session2.userId !== req.session.userId) return res.status(403).json({ message: "Not authorized" });
       const points = await storage.getSessionRoutePoints(req.params.id);
       res.json(points);
     } catch (error) {
