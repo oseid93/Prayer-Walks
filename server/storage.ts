@@ -348,7 +348,11 @@ export class DatabaseStorage implements IStorage {
       const sessions = await db
         .select()
         .from(walkingSessions)
-        .where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
+        .where(and(
+          eq(walkingSessions.userId, membership.userId),
+          eq(walkingSessions.isActive, false),
+          gte(walkingSessions.startedAt, membership.joinedAt),
+        ));
       results.push({
         userId: membership.userId,
         displayName: user.displayName,
@@ -365,16 +369,23 @@ export class DatabaseStorage implements IStorage {
     const memberships = await db.select().from(groupMemberships).where(eq(groupMemberships.groupId, groupId));
     const memberCount = memberships.length;
     if (memberCount === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
-    const memberIds = memberships.map((m) => m.userId);
-    const conditions = [inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)];
-    if (from) conditions.push(gte(walkingSessions.startedAt, from));
-    if (to) conditions.push(lte(walkingSessions.startedAt, to));
-    const sessions = await db.select().from(walkingSessions).where(and(...conditions));
+    const params: unknown[] = [groupId];
+    let dateFilter = "";
+    if (from) { params.push(from); dateFilter += ` AND ws.started_at >= $${params.length}`; }
+    if (to) { params.push(to); dateFilter += ` AND ws.started_at <= $${params.length}`; }
+    const result = await pool.query<{ session_count: string; total_distance: string; total_duration: string }>(
+      `SELECT COUNT(*) AS session_count, COALESCE(SUM(ws.total_distance), 0) AS total_distance, COALESCE(SUM(ws.total_duration), 0) AS total_duration
+       FROM walking_sessions ws
+       JOIN group_memberships gm ON gm.user_id = ws.user_id AND gm.group_id = $1
+       WHERE ws.is_active = false AND ws.started_at >= gm.joined_at${dateFilter}`,
+      params,
+    );
+    const row = result.rows[0];
     return {
       memberCount,
-      sessionCount: sessions.length,
-      totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
-      totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0),
+      sessionCount: parseInt(row.session_count, 10),
+      totalDistance: parseFloat(row.total_distance),
+      totalDuration: parseInt(row.total_duration, 10),
     };
   }
 
@@ -522,7 +533,11 @@ export class DatabaseStorage implements IStorage {
       const sessions = await db
         .select()
         .from(walkingSessions)
-        .where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
+        .where(and(
+          eq(walkingSessions.userId, membership.userId),
+          eq(walkingSessions.isActive, false),
+          gte(walkingSessions.startedAt, membership.joinedAt),
+        ));
       results.push({
         userId: membership.userId,
         displayName: user.displayName,
@@ -538,15 +553,23 @@ export class DatabaseStorage implements IStorage {
   async getBranchStats(branchId: string, from?: Date, to?: Date): Promise<GroupStats> {
     const memberIds = await this.getBranchMembers(branchId);
     if (memberIds.length === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
-    const conditions = [inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)];
-    if (from) conditions.push(gte(walkingSessions.startedAt, from));
-    if (to) conditions.push(lte(walkingSessions.startedAt, to));
-    const sessions = await db.select().from(walkingSessions).where(and(...conditions));
+    const params: unknown[] = [branchId];
+    let dateFilter = "";
+    if (from) { params.push(from); dateFilter += ` AND ws.started_at >= $${params.length}`; }
+    if (to) { params.push(to); dateFilter += ` AND ws.started_at <= $${params.length}`; }
+    const result = await pool.query<{ session_count: string; total_distance: string; total_duration: string }>(
+      `SELECT COUNT(*) AS session_count, COALESCE(SUM(ws.total_distance), 0) AS total_distance, COALESCE(SUM(ws.total_duration), 0) AS total_duration
+       FROM walking_sessions ws
+       JOIN branch_memberships bm ON bm.user_id = ws.user_id AND bm.branch_id = $1 AND bm.status = 'active'
+       WHERE ws.is_active = false AND ws.started_at >= bm.joined_at${dateFilter}`,
+      params,
+    );
+    const row = result.rows[0];
     return {
       memberCount: memberIds.length,
-      sessionCount: sessions.length,
-      totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
-      totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0),
+      sessionCount: parseInt(row.session_count, 10),
+      totalDistance: parseFloat(row.total_distance),
+      totalDuration: parseInt(row.total_duration, 10),
     };
   }
 
@@ -787,7 +810,11 @@ export class DatabaseStorage implements IStorage {
       const sessions = await db
         .select()
         .from(walkingSessions)
-        .where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
+        .where(and(
+          eq(walkingSessions.userId, membership.userId),
+          eq(walkingSessions.isActive, false),
+          gte(walkingSessions.startedAt, membership.joinedAt),
+        ));
       results.push({
         userId: membership.userId,
         displayName: user.displayName,
@@ -803,15 +830,23 @@ export class DatabaseStorage implements IStorage {
   async getTeamStats(teamId: string, from?: Date, to?: Date): Promise<GroupStats> {
     const memberIds = await this.getTeamMembers(teamId);
     if (memberIds.length === 0) return { memberCount: 0, sessionCount: 0, totalDistance: 0, totalDuration: 0 };
-    const conditions = [inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)];
-    if (from) conditions.push(gte(walkingSessions.startedAt, from));
-    if (to) conditions.push(lte(walkingSessions.startedAt, to));
-    const sessions = await db.select().from(walkingSessions).where(and(...conditions));
+    const params: unknown[] = [teamId];
+    let dateFilter = "";
+    if (from) { params.push(from); dateFilter += ` AND ws.started_at >= $${params.length}`; }
+    if (to) { params.push(to); dateFilter += ` AND ws.started_at <= $${params.length}`; }
+    const result = await pool.query<{ session_count: string; total_distance: string; total_duration: string }>(
+      `SELECT COUNT(*) AS session_count, COALESCE(SUM(ws.total_distance), 0) AS total_distance, COALESCE(SUM(ws.total_duration), 0) AS total_duration
+       FROM walking_sessions ws
+       JOIN team_memberships tm ON tm.user_id = ws.user_id AND tm.team_id = $1 AND tm.status = 'active'
+       WHERE ws.is_active = false AND ws.started_at >= tm.joined_at${dateFilter}`,
+      params,
+    );
+    const row = result.rows[0];
     return {
       memberCount: memberIds.length,
-      sessionCount: sessions.length,
-      totalDistance: sessions.reduce((acc, s) => acc + (s.totalDistance || 0), 0),
-      totalDuration: sessions.reduce((acc, s) => acc + (s.totalDuration || 0), 0),
+      sessionCount: parseInt(row.session_count, 10),
+      totalDistance: parseFloat(row.total_distance),
+      totalDuration: parseInt(row.total_duration, 10),
     };
   }
 
@@ -878,21 +913,47 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getGroupRoutePoints(groupId: string): Promise<RoutePoint[]> {
-    const memberIds = await this.getGroupMembers(groupId);
-    if (memberIds.length === 0) return [];
-    const sessions = await db.select().from(walkingSessions).where(and(inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)));
-    if (sessions.length === 0) return [];
-    const sessionIds = sessions.map((s) => s.id);
-    return db.select().from(routePoints).where(inArray(routePoints.sessionId, sessionIds)).orderBy(asc(routePoints.timestamp));
+    return db
+      .select({
+        id: routePoints.id,
+        sessionId: routePoints.sessionId,
+        latitude: routePoints.latitude,
+        longitude: routePoints.longitude,
+        timestamp: routePoints.timestamp,
+        accuracy: routePoints.accuracy,
+      })
+      .from(routePoints)
+      .innerJoin(walkingSessions, eq(routePoints.sessionId, walkingSessions.id))
+      .innerJoin(
+        groupMemberships,
+        and(eq(walkingSessions.userId, groupMemberships.userId), eq(groupMemberships.groupId, groupId)),
+      )
+      .where(and(eq(walkingSessions.isActive, false), gte(walkingSessions.startedAt, groupMemberships.joinedAt)))
+      .orderBy(asc(routePoints.timestamp));
   }
 
   async getTeamRoutePoints(teamId: string): Promise<RoutePoint[]> {
-    const memberIds = await this.getTeamMembers(teamId);
-    if (memberIds.length === 0) return [];
-    const sessions = await db.select().from(walkingSessions).where(and(inArray(walkingSessions.userId, memberIds), eq(walkingSessions.isActive, false)));
-    if (sessions.length === 0) return [];
-    const sessionIds = sessions.map((s) => s.id);
-    return db.select().from(routePoints).where(inArray(routePoints.sessionId, sessionIds)).orderBy(asc(routePoints.timestamp));
+    return db
+      .select({
+        id: routePoints.id,
+        sessionId: routePoints.sessionId,
+        latitude: routePoints.latitude,
+        longitude: routePoints.longitude,
+        timestamp: routePoints.timestamp,
+        accuracy: routePoints.accuracy,
+      })
+      .from(routePoints)
+      .innerJoin(walkingSessions, eq(routePoints.sessionId, walkingSessions.id))
+      .innerJoin(
+        teamMemberships,
+        and(
+          eq(walkingSessions.userId, teamMemberships.userId),
+          eq(teamMemberships.teamId, teamId),
+          eq(teamMemberships.status, "active"),
+        ),
+      )
+      .where(and(eq(walkingSessions.isActive, false), gte(walkingSessions.startedAt, teamMemberships.joinedAt)))
+      .orderBy(asc(routePoints.timestamp));
   }
 
   // ─── Priority Areas ───────────────────────────────────────────────────────
