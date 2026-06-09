@@ -663,6 +663,18 @@ export default function NativeMapScreen() {
         </View>
       )}
 
+      {/* Info button — left edge, level with controls row */}
+      {!drawMode && (
+        <Pressable
+          onPress={() => setShowTutorial(true)}
+          style={({ pressed }) => [styles.infoButton, { opacity: pressed ? 0.7 : 1 }]}
+          testID="info-button"
+          hitSlop={8}
+        >
+          <Feather name="info" size={14} color="#9CA3AF" />
+        </Pressable>
+      )}
+
       {/* Controls */}
       <View style={styles.controlsContainer}>
         {drawMode ? (
@@ -692,16 +704,6 @@ export default function NativeMapScreen() {
           </View>
         ) : (
           <View style={styles.controlsRow}>
-            {/* Info */}
-            <Pressable
-              onPress={() => setShowTutorial(true)}
-              style={({ pressed }) => [styles.infoButton, { opacity: pressed ? 0.7 : 1 }]}
-              testID="info-button"
-              hitSlop={8}
-            >
-              <Feather name="info" size={14} color="#9CA3AF" />
-            </Pressable>
-
             {/* Crosshair */}
             <Pressable
               onPress={handleCenterOnLocation}
@@ -1049,12 +1051,16 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
   },
   infoButton: {
+    position: "absolute",
+    left: 16,
+    bottom: 110,
     width: 28,
     height: 28,
     borderRadius: 14,
     backgroundColor: "rgba(15, 15, 35, 0.9)",
     alignItems: "center",
     justifyContent: "center",
+    zIndex: 10,
   },
   controlsContainer: {
     position: "absolute",
