@@ -695,11 +695,11 @@ export default function NativeMapScreen() {
             {/* Info */}
             <Pressable
               onPress={() => setShowTutorial(true)}
-              style={({ pressed }) => [styles.secondaryButton, { opacity: pressed ? 0.7 : 1 }]}
+              style={({ pressed }) => [styles.infoButton, { opacity: pressed ? 0.7 : 1 }]}
               testID="info-button"
               hitSlop={8}
             >
-              <Feather name="info" size={20} color="#9CA3AF" />
+              <Feather name="info" size={14} color="#9CA3AF" />
             </Pressable>
 
             {/* Crosshair */}
@@ -1047,6 +1047,14 @@ const styles = StyleSheet.create({
     fontWeight: "600" as const,
     color: "#FFFFFF",
     fontFamily: "Inter_600SemiBold",
+  },
+  infoButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(15, 15, 35, 0.9)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   controlsContainer: {
     position: "absolute",
