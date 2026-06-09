@@ -51,6 +51,7 @@
     "expo-task-manager": "^14.0.9",
     "expo-web-browser": "~15.0.10",
     "express": "^5.0.1",
+    "express-rate-limit": "^8.5.2",
     "express-session": "^1.19.0",
     "http-proxy-middleware": "^3.0.5",
     "node-forge": "^1.4.0",

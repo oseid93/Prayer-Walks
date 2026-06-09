@@ -160,6 +160,20 @@ async function applyMigrations(client: pg.PoolClient): Promise<void> {
   await client.query("COMMIT");
 }
 
+async function applyIdempotentAlters(client: pg.PoolClient): Promise<void> {
+  // Run truly idempotent ALTER TABLE statements in their own transaction so
+  // they are never affected by any aborted-transaction state left behind by
+  // the constraint operations above (which use .catch() to tolerate
+  // "constraint already exists" errors but leave the PG session in an aborted
+  // state until COMMIT/ROLLBACK).
+  await client.query("BEGIN");
+  await client.query(`
+    ALTER TABLE password_reset_tokens
+      ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0
+  `);
+  await client.query("COMMIT");
+}
+
 async function runMigrationsOnce(): Promise<void> {
   const client = await pool.connect();
   try {
@@ -170,13 +184,15 @@ async function runMigrationsOnce(): Promise<void> {
     await client.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_KEY]);
 
     try {
-      await applyMigrations(client);
-      console.log("Migrations completed successfully");
-    } catch (err) {
-      await client.query("ROLLBACK").catch(() => {
-        // Ignore rollback errors; the original error is what matters.
+      await applyMigrations(client).catch(async (err) => {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
       });
-      throw err;
+      await applyIdempotentAlters(client).catch(async (err) => {
+        await client.query("ROLLBACK").catch(() => {});
+        throw err;
+      });
+      console.log("Migrations completed successfully");
     } finally {
       await client.query("SELECT pg_advisory_unlock($1)", [
         MIGRATION_LOCK_KEY,

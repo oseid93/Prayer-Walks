@@ -26,7 +26,7 @@ import {
   passwordResetTokens,
 } from "../shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
-import { eq, and, inArray, desc, asc, sum, count, gt, gte, lte, or, isNull } from "drizzle-orm";
+import { eq, and, inArray, desc, asc, sum, count, gt, gte, lte, or, isNull, sql } from "drizzle-orm";
 import pg from "pg";
 
 if (!process.env.DATABASE_URL) {
@@ -219,8 +219,37 @@ export class DatabaseStorage implements IStorage {
     return resetToken;
   }
 
+  async getLatestUnusedResetTokenForUser(userId: string): Promise<PasswordResetToken | undefined> {
+    const [resetToken] = await db
+      .select()
+      .from(passwordResetTokens)
+      .where(
+        and(
+          eq(passwordResetTokens.userId, userId),
+          gt(passwordResetTokens.expiresAt, new Date()),
+          isNull(passwordResetTokens.usedAt),
+        ),
+      )
+      .orderBy(desc(passwordResetTokens.createdAt))
+      .limit(1);
+    return resetToken;
+  }
+
   async markResetTokenUsed(tokenId: string): Promise<void> {
     await db.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, tokenId));
+  }
+
+  async incrementResetTokenAttempts(tokenId: string): Promise<number> {
+    const [updated] = await db
+      .update(passwordResetTokens)
+      .set({ attempts: sql`${passwordResetTokens.attempts} + 1` })
+      .where(eq(passwordResetTokens.id, tokenId))
+      .returning({ attempts: passwordResetTokens.attempts });
+    return updated?.attempts ?? 0;
+  }
+
+  async deleteResetToken(tokenId: string): Promise<void> {
+    await db.delete(passwordResetTokens).where(eq(passwordResetTokens.id, tokenId));
   }
 
   // ─── Churches (groups) ────────────────────────────────────────────────────

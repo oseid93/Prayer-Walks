@@ -3,10 +3,36 @@ import { createServer, type Server } from "node:http";
 import session from "express-session";
 import connectPg from "connect-pg-simple";
 import bcrypt from "bcrypt";
+import rateLimit from "express-rate-limit";
 import { storage } from "./storage";
 import { insertUserSchema, insertRoutePointsSchema } from "../shared/schema";
 import { sendPasswordResetEmail } from "./email";
 import { runMigrations } from "./migrations";
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many login attempts. Please try again later." },
+  skipSuccessfulRequests: true,
+});
+
+const forgotPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many password reset requests. Please try again later." },
+});
+
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many reset attempts. Please try again later." },
+});
 
 const PgStore = connectPg(session);
 
@@ -83,7 +109,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/login", async (req: Request, res: Response) => {
+  app.post("/api/auth/login", loginLimiter, async (req: Request, res: Response) => {
     try {
       const { username, password } = req.body;
       if (!username || !password) return res.status(400).json({ message: "Username and password required" });
@@ -125,7 +151,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/forgot-password", async (req: Request, res: Response) => {
+  app.post("/api/auth/forgot-password", forgotPasswordLimiter, async (req: Request, res: Response) => {
     try {
       const { email } = req.body;
       if (!email) return res.status(400).json({ message: "Email required" });
@@ -143,7 +169,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/auth/reset-password", async (req: Request, res: Response) => {
+  app.post("/api/auth/reset-password", resetPasswordLimiter, async (req: Request, res: Response) => {
     try {
       const { email, code, newPassword } = req.body;
       if (!email || !code || !newPassword) return res.status(400).json({ message: "Email, code, and new password are required" });
@@ -151,7 +177,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUserByEmail(email.toLowerCase().trim());
       if (!user) return res.status(400).json({ message: "Invalid or expired code" });
       const resetToken = await storage.getValidResetToken(code);
-      if (!resetToken || resetToken.userId !== user.id || resetToken.usedAt) return res.status(400).json({ message: "Invalid or expired code" });
+      if (!resetToken || resetToken.userId !== user.id || resetToken.usedAt) {
+        // If we found a valid (non-expired, unused) token for this user but the code
+        // is wrong, increment the attempt counter and invalidate after 5 failures.
+        const candidateToken = await storage.getLatestUnusedResetTokenForUser(user.id);
+        if (candidateToken) {
+          const attempts = await storage.incrementResetTokenAttempts(candidateToken.id);
+          if (attempts >= 5) {
+            await storage.deleteResetToken(candidateToken.id);
+          }
+        }
+        return res.status(400).json({ message: "Invalid or expired code" });
+      }
       const hashed = await bcrypt.hash(newPassword, 10);
       await storage.updateUserPassword(user.id, hashed);
       await storage.markResetTokenUsed(resetToken.id);
