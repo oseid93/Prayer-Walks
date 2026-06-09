@@ -107,6 +107,7 @@ export default function NativeMapScreen() {
 
   // Date range filter
   const [dateFilter, setDateFilter] = useState<"week" | "month" | "all">("all");
+  const [showDateDropdown, setShowDateDropdown] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -587,6 +588,44 @@ export default function NativeMapScreen() {
               </Text>
             </Pressable>
           </View>
+
+          {state === "idle" && (
+            <View style={styles.dateDropdownWrapper}>
+              <Pressable
+                onPress={() => setShowDateDropdown((v) => !v)}
+                style={styles.dateDropdownButton}
+              >
+                <Text style={styles.dateDropdownLabel}>
+                  {dateFilter === "week" ? "This Week" : dateFilter === "month" ? "This Month" : "All Time"}
+                </Text>
+                <Feather
+                  name={showDateDropdown ? "chevron-up" : "chevron-down"}
+                  size={12}
+                  color="#9CA3AF"
+                />
+              </Pressable>
+              {showDateDropdown && (
+                <View style={styles.dateDropdownMenu}>
+                  {(["week", "month", "all"] as const).map((f, i) => (
+                    <Pressable
+                      key={f}
+                      onPress={() => { setDateFilter(f); setShowDateDropdown(false); }}
+                      style={[
+                        styles.dateDropdownItem,
+                        dateFilter === f && styles.dateDropdownItemActive,
+                        i < 2 && styles.dateDropdownItemBorder,
+                      ]}
+                    >
+                      <Text style={[styles.dateDropdownItemText, dateFilter === f && styles.dateDropdownItemTextActive]}>
+                        {f === "week" ? "This Week" : f === "month" ? "This Month" : "All Time"}
+                      </Text>
+                      {dateFilter === f && <Feather name="check" size={12} color="#33C3F0" />}
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
         </View>
       )}
 
@@ -607,21 +646,12 @@ export default function NativeMapScreen() {
         </View>
       )}
 
-      {/* Date range filter pills — shown when idle and not drawing */}
-      {state === "idle" && !drawMode && (
-        <View style={[styles.dateFilterRow, { top: insets.top + 60 }]}>
-          {(["week", "month", "all"] as const).map((f) => (
-            <Pressable
-              key={f}
-              onPress={() => setDateFilter(f)}
-              style={[styles.dateFilterPill, dateFilter === f && styles.dateFilterPillActive]}
-            >
-              <Text style={[styles.dateFilterText, dateFilter === f && styles.dateFilterTextActive]}>
-                {f === "week" ? "This Week" : f === "month" ? "This Month" : "All Time"}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+      {/* Dropdown dismiss backdrop */}
+      {showDateDropdown && (
+        <Pressable
+          style={[StyleSheet.absoluteFillObject, { zIndex: 8 }]}
+          onPress={() => setShowDateDropdown(false)}
+        />
       )}
 
       {/* Location permission banner — rendered below the filter pills so it never pushes them down */}
@@ -1006,7 +1036,7 @@ const styles = StyleSheet.create({
     left: 16,
     right: 16,
     flexDirection: "row",
-    justifyContent: "flex-start",
+    justifyContent: "space-between",
     alignItems: "center",
     zIndex: 10,
   },
@@ -1402,32 +1432,58 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_400Regular",
     color: "#FFCC00",
   },
-  dateFilterRow: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    gap: 8,
-    justifyContent: "center",
+  dateDropdownWrapper: {
+    position: "relative",
+    zIndex: 100,
   },
-  dateFilterPill: {
+  dateDropdownButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(15, 15, 35, 0.9)",
+    borderRadius: 12,
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    backgroundColor: "rgba(15,15,35,0.85)",
+    paddingVertical: 8,
     borderWidth: 1,
     borderColor: "#2D2D44",
   },
-  dateFilterPillActive: {
-    backgroundColor: "#33C3F0",
-    borderColor: "#33C3F0",
-  },
-  dateFilterText: {
-    fontSize: 12,
+  dateDropdownLabel: {
+    fontSize: 13,
     fontFamily: "Inter_500Medium",
     color: "#9CA3AF",
   },
-  dateFilterTextActive: {
-    color: "#0F0F23",
+  dateDropdownMenu: {
+    position: "absolute",
+    top: 44,
+    right: 0,
+    backgroundColor: "rgba(15, 15, 35, 0.97)",
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#2D2D44",
+    minWidth: 120,
+    overflow: "hidden",
+    zIndex: 200,
+  },
+  dateDropdownItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  dateDropdownItemBorder: {
+    borderBottomWidth: 1,
+    borderBottomColor: "#2D2D44",
+  },
+  dateDropdownItemActive: {
+    backgroundColor: "rgba(51, 195, 240, 0.12)",
+  },
+  dateDropdownItemText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#9CA3AF",
+  },
+  dateDropdownItemTextActive: {
+    color: "#33C3F0",
   },
 });
