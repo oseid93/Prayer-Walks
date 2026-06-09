@@ -30,10 +30,15 @@ subtrees. Confirm patches re-applied (grep a sentinel line in the patched file).
 - Direct-dep bumps via the package tool: drizzle-orm (SQLi), nodemailer, ws — stable APIs.
 - Removing an unused dep prunes its sole-source vulns: dropping `@expo/ngrok` (tunnel
   mode, unused — workflow runs `--localhost`) removed the only `uuid@3.4.0`.
-- **brace-expansion is NOT worth fixing here:** it needs per-major version-keyed
-  overrides (1.x and 2.x export `module.exports=fn` for minimatch@3; 5.x exports named
-  `.expand` for minimatch@10) AND a clean reinstall. Not exploitable (build-time glob
-  parsing of trusted patterns). Leave it.
+- **brace-expansion major-version-keyed overrides DO work on incremental install:**
+  Use `"brace-expansion@1": "^1.1.13"`, `"brace-expansion@2": "^2.0.3"`,
+  `"brace-expansion@5": "^5.0.6"` in overrides. These work because npm resolves the
+  major selector without requiring a clean reinstall.
+  **Contrast:** exact-version keys like `"brace-expansion@1.1.12": "1.1.15"` need
+  a clean reinstall; major-range keys like `"brace-expansion@1"` work incrementally.
+  After adding overrides, trigger npm install by installing any unblocked package via
+  `installLanguagePackages` (e.g., `nodemailer@latest`). Do NOT try to install
+  brace-expansion itself as a direct dep — that conflicts with the override.
 
 ## Overriding a transitive can delete a CLI binary the build relies on
 The deployment `build` step runs `server:build` = `esbuild server/index.ts ...`, which
