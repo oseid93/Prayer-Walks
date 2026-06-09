@@ -98,9 +98,6 @@ export default function NativeMapScreen() {
   const [areaColor, setAreaColor] = useState(AREA_COLORS[0].value);
   const [showTutorial, setShowTutorial] = useState(false);
 
-  // Prayer note state
-  const [showNoteModal, setShowNoteModal] = useState(false);
-  const [noteText, setNoteText] = useState("");
 
   // Permission banner state
   const [permStatus, setPermStatus] = useState<string>("granted");
@@ -194,23 +191,6 @@ export default function NativeMapScreen() {
     return () => { cancelled = true; };
   }, []);
 
-  const addNoteMutation = useMutation({
-    mutationFn: async (text: string) => {
-      if (!sessionId) throw new Error("No active session");
-      const res = await apiRequest("POST", `/api/sessions/${sessionId}/notes`, {
-        text,
-        latitude: currentLocation?.latitude ?? null,
-        longitude: currentLocation?.longitude ?? null,
-      });
-      if (!res.ok) throw new Error("Failed to save note");
-      return res.json();
-    },
-    onSuccess: () => {
-      setShowNoteModal(false);
-      setNoteText("");
-    },
-    onError: (err: Error) => Alert.alert("Error", err.message || "Failed to save note"),
-  });
 
   // Apply date filter to coverage points
   const filteredCoveragePoints = React.useMemo(() => {
@@ -772,19 +752,6 @@ export default function NativeMapScreen() {
               </Pressable>
             ) : null}
 
-            {/* Note button: shown when tracking or paused */}
-            {(state === "tracking" || state === "paused") && (
-              <Pressable
-                onPress={() => { setNoteText(""); setShowNoteModal(true); }}
-                style={({ pressed }) => [
-                  styles.secondaryButton,
-                  { opacity: pressed ? 0.8 : 1 },
-                ]}
-                testID="add-note-button"
-              >
-                <Feather name="feather" size={20} color="#FF9500" />
-              </Pressable>
-            )}
 
             {/* Right: green play FAB when idle, red stop (same size as pause) when active */}
             {state === "idle" ? (
@@ -814,39 +781,6 @@ export default function NativeMapScreen() {
         )}
       </View>
 
-      {/* Prayer Note Modal */}
-      <Modal visible={showNoteModal} transparent animationType="slide" onRequestClose={() => setShowNoteModal(false)}>
-        <KeyboardAvoidingView style={styles.modalOverlay} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-          <View style={styles.modalContent}>
-            <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Prayer Note</Text>
-              <Pressable onPress={() => setShowNoteModal(false)}>
-                <Feather name="x" size={22} color="#9CA3AF" />
-              </Pressable>
-            </View>
-            <TextInput
-              style={[styles.modalInput, { minHeight: 80, textAlignVertical: "top", paddingTop: 14 }]}
-              placeholder="What are you praying for here?"
-              placeholderTextColor="#6B7280"
-              value={noteText}
-              onChangeText={setNoteText}
-              multiline
-              autoFocus
-            />
-            <Pressable
-              onPress={() => { if (!noteText.trim() || !sessionId) return; addNoteMutation.mutate(noteText.trim()); }}
-              disabled={addNoteMutation.isPending || !noteText.trim() || !sessionId}
-              style={[styles.saveButton, { backgroundColor: "#FF9500", opacity: !noteText.trim() ? 0.5 : 1 }]}
-            >
-              {addNoteMutation.isPending ? (
-                <Text style={styles.saveButtonText}>Saving...</Text>
-              ) : (
-                <Text style={styles.saveButtonText}>Save Note</Text>
-              )}
-            </Pressable>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
 
       {/* Save Zone Modal */}
       <Modal
