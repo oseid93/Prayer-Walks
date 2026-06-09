@@ -114,7 +114,7 @@ export const branchMemberships = pgTable(
   (table) => [
     index("branch_memberships_user_idx").on(table.userId),
     index("branch_memberships_branch_idx").on(table.branchId),
-    unique("branch_memberships_user_church_unique").on(table.userId, table.churchId),
+    unique("branch_memberships_user_branch_unique").on(table.userId, table.branchId),
   ],
 );
 

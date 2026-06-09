@@ -144,6 +144,19 @@ async function applyMigrations(client: pg.PoolClient): Promise<void> {
       ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active'
   `);
 
+  // Allow users to be members of multiple branches per church.
+  // Drop the old UNIQUE(user_id, church_id) constraint and replace it with
+  // UNIQUE(user_id, branch_id) so the same person can join more than one branch.
+  await client.query(`
+    ALTER TABLE branch_memberships
+      DROP CONSTRAINT IF EXISTS branch_memberships_user_id_church_id_key,
+      DROP CONSTRAINT IF EXISTS branch_memberships_user_church_unique
+  `).catch(() => {});
+  await client.query(`
+    ALTER TABLE branch_memberships
+      ADD CONSTRAINT branch_memberships_user_branch_unique UNIQUE (user_id, branch_id)
+  `).catch(() => {});
+
   await client.query("COMMIT");
 }
 

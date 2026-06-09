@@ -322,11 +322,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.json({ ...branch, status: "active" });
       }
       // Non-admin members create a pending request that the church admin must approve.
-      // Block if they're already in a branch in this church.
-      const currentBranch = await storage.getUserBranchInChurch(req.session.userId!, churchId);
-      if (currentBranch) {
-        return res.status(409).json({ message: "You are already in a branch. Leave it first to request a new one." });
-      }
       const branch = await storage.createBranch(churchId, name.trim(), req.session.userId!, "pending");
       res.json({ ...branch, status: "pending", message: "Your branch request has been sent and is awaiting church admin approval." });
     } catch (error) {
@@ -387,10 +382,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!isMember) return res.status(403).json({ message: "Not a church member" });
       const branch = await storage.getBranchById(branchId);
       if (!branch || branch.churchId !== churchId || branch.status !== "active") return res.status(404).json({ message: "Branch not found" });
-      const currentBranch = await storage.getUserBranchInChurch(req.session.userId!, churchId);
-      if (currentBranch && currentBranch.id !== branchId) {
-        return res.status(409).json({ message: "You are already in a branch. Leave it first." });
-      }
       const existing = await storage.hasBranchRequest(req.session.userId!, branchId);
       if (existing === "pending") return res.json({ status: "pending", message: "Your join request is awaiting approval." });
       if (existing === "active") return res.json({ status: "active", message: "Already a member." });

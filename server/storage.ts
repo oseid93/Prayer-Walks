@@ -347,14 +347,10 @@ export class DatabaseStorage implements IStorage {
   async createBranch(churchId: string, name: string, userId: string, status: "active" | "pending" = "active"): Promise<Branch> {
     const [branch] = await db.insert(branches).values({ churchId, name, createdById: userId, status }).returning();
     if (status === "active") {
-      // unique(user_id, church_id): a user can only be a direct member of one branch
-      // per church. If they already belong to one (e.g. a church admin who already
-      // created/joined a branch), skip the auto-membership — their church-admin
-      // status already grants effective admin rights on every branch.
       await db
         .insert(branchMemberships)
         .values({ userId, branchId: branch.id, churchId, role: "admin" })
-        .onConflictDoNothing({ target: [branchMemberships.userId, branchMemberships.churchId] });
+        .onConflictDoNothing({ target: [branchMemberships.userId, branchMemberships.branchId] });
     }
     return branch;
   }
@@ -389,18 +385,11 @@ export class DatabaseStorage implements IStorage {
   async approveBranchCreation(branchId: string): Promise<void> {
     const [branch] = await db.select().from(branches).where(eq(branches.id, branchId));
     if (!branch) return;
-    // Make sure the requester isn't already in another branch in this church
-    await db
-      .delete(branchMemberships)
-      .where(and(eq(branchMemberships.userId, branch.createdById), eq(branchMemberships.churchId, branch.churchId)));
     await db.update(branches).set({ status: "active" }).where(eq(branches.id, branchId));
-    await db.insert(branchMemberships).values({
-      userId: branch.createdById,
-      branchId: branch.id,
-      churchId: branch.churchId,
-      role: "admin",
-      status: "active",
-    });
+    await db
+      .insert(branchMemberships)
+      .values({ userId: branch.createdById, branchId: branch.id, churchId: branch.churchId, role: "admin", status: "active" })
+      .onConflictDoNothing({ target: [branchMemberships.userId, branchMemberships.branchId] });
   }
 
   async rejectBranchCreation(branchId: string): Promise<void> {
@@ -429,7 +418,7 @@ export class DatabaseStorage implements IStorage {
       const [existing] = await db
         .select()
         .from(branchMemberships)
-        .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.churchId, churchId)));
+        .where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.branchId, branchId)));
       return existing;
     }
     return membership;
