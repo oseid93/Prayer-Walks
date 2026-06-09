@@ -231,25 +231,6 @@ export default function ChurchDetailScreen() {
       )}
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        {/* ── Join Code (admin only) ── */}
-        {isAdmin && (
-          <View style={styles.codeCard}>
-            <View style={styles.codeCardLeft}>
-              <Feather name="key" size={14} color="#FFCC00" />
-              <Text style={styles.codeCardLabel}>Join Code</Text>
-            </View>
-            <Text style={styles.codeCardValue}>{currentCode}</Text>
-            <Pressable
-              onPress={() => { setCustomCodeInput(""); setCodeError(""); setShowCodeModal(true); }}
-              style={({ pressed }) => [styles.codeChangeBtn, { opacity: pressed ? 0.7 : 1 }]}
-              hitSlop={8}
-            >
-              <Feather name="edit-2" size={13} color="#FFCC00" />
-              <Text style={styles.codeChangeBtnText}>Change</Text>
-            </Pressable>
-          </View>
-        )}
-
         {isAdmin ? (
           <>
             <View style={styles.sectionRow}>
@@ -395,6 +376,25 @@ export default function ChurchDetailScreen() {
             <Feather name="chevron-right" size={18} color="#6B7280" />
           </Pressable>
         ))}
+
+        {/* ── Join Code (admin only) ── */}
+        {isAdmin && (
+          <View style={[styles.codeCard, { marginTop: 8 }]}>
+            <View style={styles.codeCardLeft}>
+              <Feather name="key" size={14} color="#FFCC00" />
+              <Text style={styles.codeCardLabel}>Join Code</Text>
+            </View>
+            <Text style={styles.codeCardValue}>{currentCode}</Text>
+            <Pressable
+              onPress={() => { setCustomCodeInput(""); setCodeError(""); setShowCodeModal(true); }}
+              style={({ pressed }) => [styles.codeChangeBtn, { opacity: pressed ? 0.7 : 1 }]}
+              hitSlop={8}
+            >
+              <Feather name="edit-2" size={13} color="#FFCC00" />
+              <Text style={styles.codeChangeBtnText}>Change</Text>
+            </Pressable>
+          </View>
+        )}
 
         <View style={{ height: 80 }} />
       </ScrollView>
