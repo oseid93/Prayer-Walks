@@ -663,18 +663,6 @@ export default function NativeMapScreen() {
         </View>
       )}
 
-      {/* Info button */}
-      {!drawMode && (
-        <Pressable
-          onPress={() => setShowTutorial(true)}
-          style={({ pressed }) => [styles.infoButton, { opacity: pressed ? 0.7 : 1 }]}
-          testID="info-button"
-          hitSlop={8}
-        >
-          <Feather name="info" size={20} color="#9CA3AF" />
-        </Pressable>
-      )}
-
       {/* Controls */}
       <View style={styles.controlsContainer}>
         {drawMode ? (
@@ -704,7 +692,17 @@ export default function NativeMapScreen() {
           </View>
         ) : (
           <View style={styles.controlsRow}>
-            {/* Left: always crosshair */}
+            {/* Info */}
+            <Pressable
+              onPress={() => setShowTutorial(true)}
+              style={({ pressed }) => [styles.secondaryButton, { opacity: pressed ? 0.7 : 1 }]}
+              testID="info-button"
+              hitSlop={8}
+            >
+              <Feather name="info" size={20} color="#9CA3AF" />
+            </Pressable>
+
+            {/* Crosshair */}
             <Pressable
               onPress={handleCenterOnLocation}
               style={({ pressed }) => [
@@ -1049,22 +1047,6 @@ const styles = StyleSheet.create({
     fontWeight: "600" as const,
     color: "#FFFFFF",
     fontFamily: "Inter_600SemiBold",
-  },
-  infoButton: {
-    position: "absolute",
-    left: 16,
-    bottom: 140,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "rgba(15, 15, 35, 0.9)",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
   },
   controlsContainer: {
     position: "absolute",
