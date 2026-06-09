@@ -24,6 +24,7 @@ import {
   priorityAreas,
   sessionNotes,
   passwordResetTokens,
+  sessionOrgVisibility,
 } from "../shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq, and, inArray, desc, asc, sum, count, gt, gte, lte, or, isNull, sql } from "drizzle-orm";
@@ -346,13 +347,17 @@ export class DatabaseStorage implements IStorage {
       const [user] = await db.select().from(users).where(eq(users.id, membership.userId));
       if (!user) continue;
       const sessions = await db
-        .select()
+        .select({ id: walkingSessions.id, totalDistance: walkingSessions.totalDistance, totalDuration: walkingSessions.totalDuration })
         .from(walkingSessions)
-        .where(and(
-          eq(walkingSessions.userId, membership.userId),
-          eq(walkingSessions.isActive, false),
-          gte(walkingSessions.startedAt, membership.joinedAt),
-        ));
+        .innerJoin(
+          sessionOrgVisibility,
+          and(
+            eq(sessionOrgVisibility.sessionId, walkingSessions.id),
+            eq(sessionOrgVisibility.orgType, "church"),
+            eq(sessionOrgVisibility.orgId, groupId),
+          ),
+        )
+        .where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
       results.push({
         userId: membership.userId,
         displayName: user.displayName,
@@ -376,8 +381,8 @@ export class DatabaseStorage implements IStorage {
     const result = await pool.query<{ session_count: string; total_distance: string; total_duration: string }>(
       `SELECT COUNT(*) AS session_count, COALESCE(SUM(ws.total_distance), 0) AS total_distance, COALESCE(SUM(ws.total_duration), 0) AS total_duration
        FROM walking_sessions ws
-       JOIN group_memberships gm ON gm.user_id = ws.user_id AND gm.group_id = $1
-       WHERE ws.is_active = false AND ws.started_at >= gm.joined_at${dateFilter}`,
+       JOIN session_org_visibility sov ON sov.session_id = ws.id AND sov.org_type = 'church' AND sov.org_id = $1
+       WHERE ws.is_active = false${dateFilter}`,
       params,
     );
     const row = result.rows[0];
@@ -531,13 +536,17 @@ export class DatabaseStorage implements IStorage {
       const [user] = await db.select().from(users).where(eq(users.id, membership.userId));
       if (!user) continue;
       const sessions = await db
-        .select()
+        .select({ id: walkingSessions.id, totalDistance: walkingSessions.totalDistance, totalDuration: walkingSessions.totalDuration })
         .from(walkingSessions)
-        .where(and(
-          eq(walkingSessions.userId, membership.userId),
-          eq(walkingSessions.isActive, false),
-          gte(walkingSessions.startedAt, membership.joinedAt),
-        ));
+        .innerJoin(
+          sessionOrgVisibility,
+          and(
+            eq(sessionOrgVisibility.sessionId, walkingSessions.id),
+            eq(sessionOrgVisibility.orgType, "branch"),
+            eq(sessionOrgVisibility.orgId, branchId),
+          ),
+        )
+        .where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
       results.push({
         userId: membership.userId,
         displayName: user.displayName,
@@ -560,8 +569,8 @@ export class DatabaseStorage implements IStorage {
     const result = await pool.query<{ session_count: string; total_distance: string; total_duration: string }>(
       `SELECT COUNT(*) AS session_count, COALESCE(SUM(ws.total_distance), 0) AS total_distance, COALESCE(SUM(ws.total_duration), 0) AS total_duration
        FROM walking_sessions ws
-       JOIN branch_memberships bm ON bm.user_id = ws.user_id AND bm.branch_id = $1 AND bm.status = 'active'
-       WHERE ws.is_active = false AND ws.started_at >= bm.joined_at${dateFilter}`,
+       JOIN session_org_visibility sov ON sov.session_id = ws.id AND sov.org_type = 'branch' AND sov.org_id = $1
+       WHERE ws.is_active = false${dateFilter}`,
       params,
     );
     const row = result.rows[0];
@@ -808,13 +817,17 @@ export class DatabaseStorage implements IStorage {
       const [user] = await db.select().from(users).where(eq(users.id, membership.userId));
       if (!user) continue;
       const sessions = await db
-        .select()
+        .select({ id: walkingSessions.id, totalDistance: walkingSessions.totalDistance, totalDuration: walkingSessions.totalDuration })
         .from(walkingSessions)
-        .where(and(
-          eq(walkingSessions.userId, membership.userId),
-          eq(walkingSessions.isActive, false),
-          gte(walkingSessions.startedAt, membership.joinedAt),
-        ));
+        .innerJoin(
+          sessionOrgVisibility,
+          and(
+            eq(sessionOrgVisibility.sessionId, walkingSessions.id),
+            eq(sessionOrgVisibility.orgType, "team"),
+            eq(sessionOrgVisibility.orgId, teamId),
+          ),
+        )
+        .where(and(eq(walkingSessions.userId, membership.userId), eq(walkingSessions.isActive, false)));
       results.push({
         userId: membership.userId,
         displayName: user.displayName,
@@ -837,8 +850,8 @@ export class DatabaseStorage implements IStorage {
     const result = await pool.query<{ session_count: string; total_distance: string; total_duration: string }>(
       `SELECT COUNT(*) AS session_count, COALESCE(SUM(ws.total_distance), 0) AS total_distance, COALESCE(SUM(ws.total_duration), 0) AS total_duration
        FROM walking_sessions ws
-       JOIN team_memberships tm ON tm.user_id = ws.user_id AND tm.team_id = $1 AND tm.status = 'active'
-       WHERE ws.is_active = false AND ws.started_at >= tm.joined_at${dateFilter}`,
+       JOIN session_org_visibility sov ON sov.session_id = ws.id AND sov.org_type = 'team' AND sov.org_id = $1
+       WHERE ws.is_active = false${dateFilter}`,
       params,
     );
     const row = result.rows[0];
@@ -854,6 +867,21 @@ export class DatabaseStorage implements IStorage {
 
   async createSession(userId: string): Promise<WalkingSession> {
     const [session] = await db.insert(walkingSessions).values({ userId }).returning();
+    // Record org visibility at walk-creation time so coverage/stats are bounded
+    // to the orgs the user actually belonged to when they walked.
+    const [churchMems, branchMems, teamMems] = await Promise.all([
+      db.select().from(groupMemberships).where(eq(groupMemberships.userId, userId)),
+      db.select().from(branchMemberships).where(and(eq(branchMemberships.userId, userId), eq(branchMemberships.status, "active"))),
+      db.select().from(teamMemberships).where(and(eq(teamMemberships.userId, userId), eq(teamMemberships.status, "active"))),
+    ]);
+    const rows = [
+      ...churchMems.map((m) => ({ sessionId: session.id, orgType: "church", orgId: m.groupId })),
+      ...branchMems.map((m) => ({ sessionId: session.id, orgType: "branch", orgId: m.branchId })),
+      ...teamMems.map((m) => ({ sessionId: session.id, orgType: "team", orgId: m.teamId })),
+    ];
+    if (rows.length > 0) {
+      await db.insert(sessionOrgVisibility).values(rows).onConflictDoNothing();
+    }
     return session;
   }
 
@@ -923,12 +951,15 @@ export class DatabaseStorage implements IStorage {
         accuracy: routePoints.accuracy,
       })
       .from(routePoints)
-      .innerJoin(walkingSessions, eq(routePoints.sessionId, walkingSessions.id))
       .innerJoin(
-        groupMemberships,
-        and(eq(walkingSessions.userId, groupMemberships.userId), eq(groupMemberships.groupId, groupId)),
+        sessionOrgVisibility,
+        and(
+          eq(routePoints.sessionId, sessionOrgVisibility.sessionId),
+          eq(sessionOrgVisibility.orgType, "church"),
+          eq(sessionOrgVisibility.orgId, groupId),
+        ),
       )
-      .where(and(eq(walkingSessions.isActive, false), gte(walkingSessions.startedAt, groupMemberships.joinedAt)))
+      .innerJoin(walkingSessions, and(eq(routePoints.sessionId, walkingSessions.id), eq(walkingSessions.isActive, false)))
       .orderBy(asc(routePoints.timestamp));
   }
 
@@ -943,16 +974,15 @@ export class DatabaseStorage implements IStorage {
         accuracy: routePoints.accuracy,
       })
       .from(routePoints)
-      .innerJoin(walkingSessions, eq(routePoints.sessionId, walkingSessions.id))
       .innerJoin(
-        teamMemberships,
+        sessionOrgVisibility,
         and(
-          eq(walkingSessions.userId, teamMemberships.userId),
-          eq(teamMemberships.teamId, teamId),
-          eq(teamMemberships.status, "active"),
+          eq(routePoints.sessionId, sessionOrgVisibility.sessionId),
+          eq(sessionOrgVisibility.orgType, "team"),
+          eq(sessionOrgVisibility.orgId, teamId),
         ),
       )
-      .where(and(eq(walkingSessions.isActive, false), gte(walkingSessions.startedAt, teamMemberships.joinedAt)))
+      .innerJoin(walkingSessions, and(eq(routePoints.sessionId, walkingSessions.id), eq(walkingSessions.isActive, false)))
       .orderBy(asc(routePoints.timestamp));
   }
 

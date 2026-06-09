@@ -9,6 +9,7 @@ import {
   boolean,
   index,
   unique,
+  primaryKey,
 } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -258,6 +259,23 @@ export const insertGroupSchema = createInsertSchema(groups).pick({
   name: true,
 });
 
+// Records which orgs a walking session is visible to — written at session creation
+// time so that sessions are scoped to the orgs the user belonged to when they walked.
+export const sessionOrgVisibility = pgTable(
+  "session_org_visibility",
+  {
+    sessionId: varchar("session_id")
+      .notNull()
+      .references(() => walkingSessions.id, { onDelete: "cascade" }),
+    orgType: text("org_type").notNull(),
+    orgId: varchar("org_id").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.sessionId, table.orgType, table.orgId] }),
+    index("session_org_visibility_org_idx").on(table.orgType, table.orgId),
+  ],
+);
+
 export const insertSessionSchema = createInsertSchema(walkingSessions).pick({});
 
 export const insertRoutePointSchema = z.object({
@@ -283,3 +301,4 @@ export type WalkingSession = typeof walkingSessions.$inferSelect;
 export type RoutePoint = typeof routePoints.$inferSelect;
 export type PriorityArea = typeof priorityAreas.$inferSelect;
 export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+export type SessionOrgVisibility = typeof sessionOrgVisibility.$inferSelect;

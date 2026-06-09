@@ -171,6 +171,52 @@ async function applyIdempotentAlters(client: pg.PoolClient): Promise<void> {
     ALTER TABLE password_reset_tokens
       ADD COLUMN IF NOT EXISTS attempts INTEGER NOT NULL DEFAULT 0
   `);
+
+  // session_org_visibility: records which orgs a session is visible to.
+  // Written at session-creation time so coverage/stats are bounded to org
+  // membership at walk time rather than querying all sessions by userId.
+  await client.query(`
+    CREATE TABLE IF NOT EXISTS session_org_visibility (
+      session_id VARCHAR NOT NULL REFERENCES walking_sessions(id) ON DELETE CASCADE,
+      org_type   TEXT    NOT NULL,
+      org_id     VARCHAR NOT NULL,
+      PRIMARY KEY (session_id, org_type, org_id)
+    )
+  `);
+  await client.query(`
+    CREATE INDEX IF NOT EXISTS session_org_visibility_org_idx
+      ON session_org_visibility(org_type, org_id)
+  `);
+
+  // Backfill: bind existing sessions to orgs using membership join dates.
+  // A session is attributed to an org when started_at >= member joined_at.
+  await client.query(`
+    INSERT INTO session_org_visibility (session_id, org_type, org_id)
+    SELECT ws.id, 'church', gm.group_id
+    FROM walking_sessions ws
+    JOIN group_memberships gm ON gm.user_id = ws.user_id
+      AND ws.started_at >= gm.joined_at
+    ON CONFLICT DO NOTHING
+  `);
+  await client.query(`
+    INSERT INTO session_org_visibility (session_id, org_type, org_id)
+    SELECT ws.id, 'branch', bm.branch_id
+    FROM walking_sessions ws
+    JOIN branch_memberships bm ON bm.user_id = ws.user_id
+      AND bm.status = 'active'
+      AND ws.started_at >= bm.joined_at
+    ON CONFLICT DO NOTHING
+  `);
+  await client.query(`
+    INSERT INTO session_org_visibility (session_id, org_type, org_id)
+    SELECT ws.id, 'team', tm.team_id
+    FROM walking_sessions ws
+    JOIN team_memberships tm ON tm.user_id = ws.user_id
+      AND tm.status = 'active'
+      AND ws.started_at >= tm.joined_at
+    ON CONFLICT DO NOTHING
+  `);
+
   await client.query("COMMIT");
 }
 
