@@ -1,0 +1,48 @@
+Running "npm ci --include=dev" in /Users/expo/workingdir/build/ directory
+npm warn ERESOLVE overriding peer dependency
+npm warn While resolving: fdir@6.5.0
+npm warn Found: picomatch@4.0.4
+npm warn node_modules/tinyglobby/node_modules/picomatch
+npm warn   overridden picomatch@"4.0.4" (was "^4.0.3") from tinyglobby@0.2.15
+npm warn   node_modules/tinyglobby
+npm warn     tinyglobby@"^0.2.15" from @typescript-eslint/typescript-estree@8.53.1
+npm warn     node_modules/@typescript-eslint/typescript-estree
+npm warn     2 more (eslint-import-resolver-typescript, sucrase)
+npm warn
+npm warn Could not resolve dependency:
+npm warn peerOptional overridden picomatch@"3.0.2" (was "^3 || ^4") from fdir@6.5.0
+npm warn node_modules/tinyglobby/node_modules/fdir
+npm warn   fdir@"^6.5.0" from tinyglobby@0.2.15
+npm warn   node_modules/tinyglobby
+npm warn
+npm warn Conflicting peer dependency: picomatch@3.0.2
+npm warn node_modules/picomatch
+npm warn   peerOptional overridden picomatch@"3.0.2" (was "^3 || ^4") from fdir@6.5.0
+npm warn   node_modules/tinyglobby/node_modules/fdir
+npm warn     fdir@"^6.5.0" from tinyglobby@0.2.15
+npm warn     node_modules/tinyglobby
+npm error code EUSAGE
+npm error
+npm error `npm ci` can only install packages when your package.json and package-lock.json or npm-shrinkwrap.json are in sync. Please update your lock file with `npm install` before continuing.
+npm error
+npm error Missing: uuid@7.0.3 from lock file
+npm error
+npm error Clean install a project
+npm error
+npm error Usage:
+npm error npm ci
+npm error
+npm error Options:
+npm error [--install-strategy <hoisted|nested|shallow|linked>] [--legacy-bundling]
+npm error [--global-style] [--omit <dev|optional|peer> [--omit <dev|optional|peer> ...]]
+npm error [--include <prod|dev|optional|peer> [--include <prod|dev|optional|peer> ...]]
+npm error [--strict-peer-deps] [--foreground-scripts] [--ignore-scripts] [--no-audit]
+npm error [--no-bin-links] [--no-fund] [--dry-run]
+npm error [-w|--workspace <workspace-name> [-w|--workspace <workspace-name> ...]]
+npm error [-ws|--workspaces] [--include-workspace-root] [--install-links]
+npm error
+npm error aliases: clean-install, ic, install-clean, isntall-clean
+npm error
+npm error Run "npm help ci" for more info
+npm error A complete log of this run can be found in: /Users/expo/.npm/_logs/2026-06-10T07_13_11_090Z-debug-0.log
+npm ci --include=dev exited with non-zero code: 1
