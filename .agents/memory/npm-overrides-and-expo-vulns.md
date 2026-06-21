@@ -67,15 +67,28 @@ package tool runs `npm install` and reconciles the lockfile in one step. Remove 
 override entry for @xmldom/xmldom — direct dep takes precedence and is simpler.
 All HIGH CVEs (CVE-2022-37616, CVE-2022-39353) were fixed in 0.8.6 — 0.8.13 is safe.
 
-## Remaining audit moderates are Expo SDK 54 tooling — need expo@56 (out of scope)
-Leftover `npm audit` moderates are all the Expo build/dev chain: @expo/cli,
-@expo/config(-plugins), @expo/metro-config, @expo/prebuild-config, expo, expo-asset,
-expo-constants, expo-linking, expo-router, expo-splash-screen, xcode, brace-expansion,
-and `uuid@7.0.3` (from xcode). npm's only fix is `expo@56` (major SDK upgrade).
-**Why unfixable:** project rules forbid changing the Expo SDK major (Expo Go compat is
-pinned), so `npm audit` zero is not achievable in scope. These run at build/prebuild/dev
-time on trusted config — not in the shipped bundle, not reachable by app users. Do not
-force uuid→v11: it breaks the v3/v7 CJS API in xcode.
+## uuid override is safe: xcode only uses uuid.v4()
+`xcode@3.0.1` does `uuid = require('uuid')` then calls `uuid.v4()` only.
+uuid@11 still exports `v4` as a named CJS export — `uuid.v4()` works correctly.
+Override `"uuid": "^11.1.1"` is safe. Previous concern about "v3/v7 CJS API" was
+wrong — the sub-path imports (`require('uuid/v4')`) were removed in uuid@7, not v11,
+and xcode never used sub-path imports.
+
+## npm audit zero is now achievable in this project
+All known advisories can be resolved via overrides and direct-dep bumps. The Expo SDK
+chain (uuid, xcode, @expo/*) is fully patchable — uuid@11 is safe for xcode@3.0.1.
+
+## Fixing nested transitive packages that have their own node_modules/ws
+When a package like metro or react-native ships its own nested ws copy (nested
+node_modules), npm overrides (both global and nested-object syntax) do NOT
+de-nest them on incremental install because the lockfile entries are preserved.
+**Fix:** Delete both the nested directories AND their lockfile entries
+(`package-lock.json["packages"]["node_modules/.../ws"]`), then re-run npm
+install. npm will re-resolve them and, if the hoisted version satisfies all
+requesters' ranges, it deduplicates them away without creating nested copies.
+**Key insight:** After deletion + install, the nested packages disappeared
+entirely (no new lockfile entry) because the hoisted ws@8.21.0 satisfied all
+dependent ranges — the nested copies only existed due to stale lockfile entries.
 
 ## Verification checklist after dependency surgery here
 1. `npm audit` HIGH count is 0; note remaining moderates are the Expo chain above.

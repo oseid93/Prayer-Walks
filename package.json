@@ -53,9 +53,9 @@
     "express": "^5.0.1",
     "express-rate-limit": "^8.5.2",
     "express-session": "^1.19.0",
-    "http-proxy-middleware": "^3.0.5",
+    "http-proxy-middleware": "^4.1.1",
     "node-forge": "^1.4.0",
-    "nodemailer": "^8.0.10",
+    "nodemailer": "^9.0.1",
     "path-to-regexp": "^8.4.0",
     "pg": "^8.16.3",
     "picomatch": "^2.3.2",
@@ -78,7 +78,7 @@
     "zod-validation-error": "^3.4.0"
   },
   "devDependencies": {
-    "@babel/core": "^7.25.2",
+    "@babel/core": "^7.29.1",
     "@types/express": "^5.0.0",
     "@types/react": "~19.1.10",
     "babel-plugin-react-compiler": "^19.0.0-beta-e993439-20250117",
@@ -104,6 +104,22 @@
     "brace-expansion@1": "^1.1.13",
     "brace-expansion@2": "^2.0.3",
     "brace-expansion@5": "^5.0.6",
-    "shell-quote": "^1.8.4"
+    "shell-quote": "^1.8.4",
+    "@react-native/dev-middleware": {
+      "ws": "^8.0.0"
+    },
+    "metro": {
+      "ws": "^8.0.0"
+    },
+    "react-devtools-core": {
+      "ws": "^8.0.0"
+    },
+    "react-native": {
+      "ws": "^8.0.0"
+    },
+    "undici": "^6.27.0",
+    "tar": "^7.5.16",
+    "js-yaml": "^4.2.0",
+    "uuid": "^11.1.1"
   }
 }
