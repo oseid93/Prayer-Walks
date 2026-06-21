@@ -20,7 +20,7 @@ interface TrackingPoint {
   accuracy: number | null;
 }
 
-type TrackingState = "idle" | "tracking" | "paused";
+type TrackingState = "idle" | "tracking";
 
 export interface CompletedSession {
   distance: number;
@@ -37,8 +37,6 @@ interface TrackingContextType {
   heading: number | null;
   sessionId: string | null;
   startTracking: () => Promise<void>;
-  pauseTracking: () => void;
-  resumeTracking: () => void;
   stopTracking: () => Promise<void>;
   hasPermission: boolean;
   requestPermission: () => Promise<boolean>;
@@ -105,7 +103,6 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const pointsBufferRef = useRef<TrackingPoint[]>([]);
   const syncIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
-  const pausedTimeRef = useRef<number>(0);
   const sessionStartedAtRef = useRef<Date>(new Date());
   const prevLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
   const isTrackingActiveRef = useRef(false);
@@ -734,14 +731,11 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       distanceRef.current = 0;
 
       startTimeRef.current = Date.now();
-      pausedTimeRef.current = 0;
       sessionStartedAtRef.current = new Date();
 
       timerRef.current = setInterval(() => {
         const now = Date.now();
-        const elapsed = Math.floor(
-          (now - startTimeRef.current - pausedTimeRef.current) / 1000,
-        );
+        const elapsed = Math.floor((now - startTimeRef.current) / 1000);
         setElapsedTime(elapsed);
       }, 1000);
 
@@ -798,39 +792,6 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     }
   }, [syncPoints, startLocationWatch, promptBackgroundPermission]);
 
-  const pauseTracking = useCallback(() => {
-    isTrackingActiveRef.current = false;
-    if (timerRef.current) {
-      clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
-    pausedTimeRef.current += Date.now() - startTimeRef.current - pausedTimeRef.current - elapsedTime * 1000;
-    // Tell background task to stop recording points while paused
-    if (Platform.OS !== "web") {
-      AsyncStorage.setItem(BG_ACTIVE_KEY, "false").catch(() => {});
-    }
-    setState("paused");
-  }, [elapsedTime]);
-
-  const resumeTracking = useCallback(async () => {
-    isTrackingActiveRef.current = true;
-    const resumeStart = Date.now();
-    startTimeRef.current = resumeStart - elapsedTime * 1000;
-    pausedTimeRef.current = 0;
-
-    // Re-enable background task recording after pause
-    if (Platform.OS !== "web") {
-      AsyncStorage.setItem(BG_ACTIVE_KEY, "true").catch(() => {});
-    }
-
-    timerRef.current = setInterval(() => {
-      const now = Date.now();
-      const elapsed = Math.floor((now - startTimeRef.current) / 1000);
-      setElapsedTime(elapsed);
-    }, 1000);
-
-    setState("tracking");
-  }, [elapsedTime]);
 
   const clearCompletedSession = useCallback(() => {
     setCompletedSession(null);
@@ -937,8 +898,6 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         heading,
         sessionId,
         startTracking,
-        pauseTracking,
-        resumeTracking,
         stopTracking,
         hasPermission,
         requestPermission,

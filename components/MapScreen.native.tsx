@@ -71,8 +71,6 @@ export default function NativeMapScreen() {
     currentLocation,
     heading,
     startTracking,
-    pauseTracking,
-    resumeTracking,
     stopTracking,
     centerOnLocation,
     completedSession,
@@ -716,7 +714,7 @@ export default function NativeMapScreen() {
               <Feather name="crosshair" size={22} color="#33C3F0" />
             </Pressable>
 
-            {/* Middle: draw (idle+admin) | pause (tracking) | resume (paused) */}
+            {/* Middle: draw button (idle + admin only) */}
             {state === "idle" && isAdminAny ? (
               <Pressable
                 onPress={handleEnterDrawMode}
@@ -727,28 +725,6 @@ export default function NativeMapScreen() {
                 testID="draw-zone"
               >
                 <Feather name="edit-2" size={20} color="#FF9500" />
-              </Pressable>
-            ) : state === "tracking" ? (
-              <Pressable
-                onPress={pauseTracking}
-                style={({ pressed }) => [
-                  styles.controlButton,
-                  { backgroundColor: "#FF9500", opacity: pressed ? 0.8 : 1 },
-                ]}
-                testID="pause-tracking"
-              >
-                <Feather name="pause" size={24} color="#fff" />
-              </Pressable>
-            ) : state === "paused" ? (
-              <Pressable
-                onPress={resumeTracking}
-                style={({ pressed }) => [
-                  styles.controlButton,
-                  { backgroundColor: "#4CD964", opacity: pressed ? 0.8 : 1 },
-                ]}
-                testID="resume-tracking"
-              >
-                <Feather name="play" size={24} color="#fff" />
               </Pressable>
             ) : null}
 

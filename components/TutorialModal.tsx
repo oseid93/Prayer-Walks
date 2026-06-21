@@ -214,7 +214,6 @@ function CoverageKey() {
 function ControlsRow() {
   const buttons = [
     { icon: "crosshair" as const, bg: "rgba(15,15,35,0.9)", color: "#33C3F0", label: "Centre" },
-    { icon: "pause" as const, bg: "#FF9500", color: "#fff", label: "Pause" },
     { icon: "square" as const, bg: "#FF3B30", color: "#fff", label: "Stop" },
   ];
   return (
@@ -238,9 +237,6 @@ function PlayTransition() {
         <Feather name="play" size={24} color="#fff" />
       </View>
       <Feather name="arrow-right" size={18} color="#4B5563" />
-      <View style={[detail.btnCircle, { backgroundColor: "#FF9500" }]}>
-        <Feather name="pause" size={18} color="#fff" />
-      </View>
       <View style={[detail.btnCircle, { backgroundColor: "#FF3B30" }]}>
         <Feather name="square" size={18} color="#fff" />
       </View>
@@ -290,7 +286,7 @@ const SLIDES: Slide[] = [
     iconColor: "#4CD964",
     iconBg: "rgba(76,217,100,0.15)",
     title: "Map Controls",
-    body: "The ⊕ crosshair centres the map on you. While walking, pause or stop your session at any time.",
+    body: "The ⊕ crosshair centres the map on you. While walking, tap stop to end your session at any time.",
     detail: <ControlsRow />,
   },
   {

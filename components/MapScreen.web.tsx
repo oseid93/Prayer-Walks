@@ -18,8 +18,6 @@ export default function WebMapScreen() {
     elapsedTime,
     distance,
     startTracking,
-    pauseTracking,
-    resumeTracking,
     stopTracking,
   } = useTracking();
 
@@ -62,40 +60,13 @@ export default function WebMapScreen() {
             </Pressable>
           )}
           {state === "tracking" && (
-            <View style={styles.webButtonRow}>
-              <Pressable
-                onPress={pauseTracking}
-                style={[styles.webButton, { backgroundColor: "#FF9500" }]}
-              >
-                <Feather name="pause" size={20} color="#fff" />
-                <Text style={styles.webButtonText}>Pause</Text>
-              </Pressable>
-              <Pressable
-                onPress={stopTracking}
-                style={[styles.webButton, { backgroundColor: "#FF3B30" }]}
-              >
-                <Feather name="square" size={20} color="#fff" />
-                <Text style={styles.webButtonText}>Stop</Text>
-              </Pressable>
-            </View>
-          )}
-          {state === "paused" && (
-            <View style={styles.webButtonRow}>
-              <Pressable
-                onPress={resumeTracking}
-                style={[styles.webButton, { backgroundColor: "#4CD964" }]}
-              >
-                <Feather name="play" size={20} color="#fff" />
-                <Text style={styles.webButtonText}>Resume</Text>
-              </Pressable>
-              <Pressable
-                onPress={stopTracking}
-                style={[styles.webButton, { backgroundColor: "#FF3B30" }]}
-              >
-                <Feather name="square" size={20} color="#fff" />
-                <Text style={styles.webButtonText}>Stop</Text>
-              </Pressable>
-            </View>
+            <Pressable
+              onPress={stopTracking}
+              style={[styles.webButton, { backgroundColor: "#FF3B30" }]}
+            >
+              <Feather name="square" size={20} color="#fff" />
+              <Text style={styles.webButtonText}>Stop</Text>
+            </Pressable>
           )}
         </View>
       </View>
