@@ -86,6 +86,7 @@ export default function BranchDetailScreen() {
   const PAGE_SIZE = 10;
   const [membersExpanded, setMembersExpanded] = useState(true);
   const [membersVisible, setMembersVisible] = useState(PAGE_SIZE);
+  const [teamsExpanded, setTeamsExpanded] = useState(true);
 
   type SortKey = "walks" | "distance" | "name";
   const [sortBy, setSortBy] = useState<SortKey>("walks");
@@ -466,44 +467,54 @@ export default function BranchDetailScreen() {
         )}
 
         {/* Teams section */}
-        <View style={[styles.sectionRow, { marginTop: 20, marginBottom: 12 }]}>
-          <Text style={styles.sectionTitle}>Teams</Text>
-          <Pressable
-            testID="create-team-btn"
-            onPress={() => setShowTeamModal(true)}
-            style={({ pressed }) => [styles.createBtn, { opacity: pressed ? 0.75 : 1 }]}
-          >
-            <Feather name="plus" size={14} color="#0F0F23" />
-            <Text style={styles.createBtnText}>{isAdmin ? "Create Team" : "Request Team"}</Text>
-          </Pressable>
-        </View>
-        {!teams || teams.length === 0 ? (
-          <View style={styles.zonesEmpty}>
-            <Feather name="users" size={24} color="#4B5563" />
-            <Text style={styles.emptyText}>{isAdmin ? "No teams yet." : "No teams in this branch."}</Text>
+        <Pressable onPress={() => setTeamsExpanded((v) => !v)} style={[styles.sectionRow, { marginTop: 20 }]}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Text style={styles.sectionTitle}>Teams</Text>
+            {teams && teams.length > 0 && <Text style={styles.memberCountLabel}>{teams.length}</Text>}
           </View>
-        ) : [...teams].sort((a, b) =>
-          sortBy === "walks" ? b.sessionCount - a.sessionCount :
-          sortBy === "distance" ? b.totalDistance - a.totalDistance :
-          a.name.localeCompare(b.name)
-        ).map((t) => (
-          <Pressable
-            key={t.id}
-            onPress={() => router.push({ pathname: "/team-detail", params: { id: t.id, name: t.name, role: t.role ?? (isAdmin ? "admin" : "participant") } })}
-            style={({ pressed }) => [styles.teamCard, { opacity: pressed ? 0.75 : 1 }]}
-          >
-            <View style={styles.teamIcon}>
-              <Feather name="users" size={18} color="#FF9500" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.zoneName}>{t.name}</Text>
-              <Text style={styles.zonePoints}>
-                {t.memberCount} {t.memberCount === 1 ? "member" : "members"} · {t.sessionCount} walks · {fmtDist(t.totalDistance)}
-              </Text>
-            </View>
-            <Feather name="chevron-right" size={18} color="#6B7280" />
-          </Pressable>
-        ))}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Pressable
+              testID="create-team-btn"
+              onPress={() => setShowTeamModal(true)}
+              style={({ pressed }) => [styles.createBtn, { opacity: pressed ? 0.75 : 1 }]}
+            >
+              <Feather name="plus" size={14} color="#0F0F23" />
+              <Text style={styles.createBtnText}>{isAdmin ? "Create Team" : "Request Team"}</Text>
+            </Pressable>
+            <Feather name={teamsExpanded ? "chevron-up" : "chevron-down"} size={16} color="#6B7280" />
+          </View>
+        </Pressable>
+        {teamsExpanded && (
+          <>
+            {!teams || teams.length === 0 ? (
+              <View style={styles.zonesEmpty}>
+                <Feather name="users" size={24} color="#4B5563" />
+                <Text style={styles.emptyText}>{isAdmin ? "No teams yet." : "No teams in this branch."}</Text>
+              </View>
+            ) : [...teams].sort((a, b) =>
+              sortBy === "walks" ? b.sessionCount - a.sessionCount :
+              sortBy === "distance" ? b.totalDistance - a.totalDistance :
+              a.name.localeCompare(b.name)
+            ).map((t) => (
+              <Pressable
+                key={t.id}
+                onPress={() => router.push({ pathname: "/team-detail", params: { id: t.id, name: t.name, role: t.role ?? (isAdmin ? "admin" : "participant") } })}
+                style={({ pressed }) => [styles.teamCard, { opacity: pressed ? 0.75 : 1 }]}
+              >
+                <View style={styles.teamIcon}>
+                  <Feather name="users" size={18} color="#FF9500" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.zoneName}>{t.name}</Text>
+                  <Text style={styles.zonePoints}>
+                    {t.memberCount} {t.memberCount === 1 ? "member" : "members"} · {t.sessionCount} walks · {fmtDist(t.totalDistance)}
+                  </Text>
+                </View>
+                <Feather name="chevron-right" size={18} color="#6B7280" />
+              </Pressable>
+            ))}
+          </>
+        )}
 
         <View style={{ height: 80 }} />
       </ScrollView>
