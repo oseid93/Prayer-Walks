@@ -54,6 +54,10 @@ export default function ChurchDetailScreen() {
   const [customCodeInput, setCustomCodeInput] = useState("");
   const [codeError, setCodeError] = useState("");
 
+  const PAGE_SIZE = 10;
+  const [membersExpanded, setMembersExpanded] = useState(true);
+  const [membersVisible, setMembersVisible] = useState(PAGE_SIZE);
+
   const [dateFilter, setDateFilter] = useState<DateFilter | null>(null);
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
@@ -88,6 +92,7 @@ export default function ChurchDetailScreen() {
 
   type SortKey = "walks" | "distance" | "name";
   const [sortBy, setSortBy] = useState<SortKey>("walks");
+  const handleSetSortBy = (k: SortKey) => { setSortBy(k); setMembersVisible(PAGE_SIZE); };
   const sorted = useMemo(() => {
     if (!members) return [];
     return [...members].sort((a, b) =>
@@ -233,56 +238,87 @@ export default function ChurchDetailScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         {isAdmin ? (
           <>
-            <View style={styles.sectionRow}>
-              <Text style={styles.sectionTitle}>Members</Text>
-              <View style={styles.sortPills}>
-                {(["walks", "distance", "name"] as SortKey[]).map((k) => (
-                  <Pressable key={k} onPress={() => setSortBy(k)} style={[styles.sortPill, sortBy === k && styles.sortPillActive]}>
-                    <Text style={[styles.sortPillText, sortBy === k && styles.sortPillTextActive]}>{k.charAt(0).toUpperCase() + k.slice(1)}</Text>
-                  </Pressable>
-                ))}
+            <Pressable onPress={() => setMembersExpanded((v) => !v)} style={styles.sectionRow}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={styles.sectionTitle}>Members</Text>
+                {members && <Text style={styles.memberCountLabel}>{members.length}</Text>}
               </View>
-            </View>
-            {membersLoading ? (
-              <ActivityIndicator color="#33C3F0" style={{ marginVertical: 20 }} />
-            ) : sorted.map((m) => (
-              <View key={m.userId} style={styles.memberCard}>
-                <View style={styles.memberAvatar}>
-                  <Text style={styles.memberInitial}>{m.displayName.charAt(0).toUpperCase()}</Text>
-                </View>
-                <View style={styles.memberInfo}>
-                  <View style={styles.memberNameRow}>
-                    <Text style={styles.memberName}>{m.displayName}</Text>
-                    {m.role === "admin" && <View style={styles.adminBadge}><Text style={styles.adminBadgeText}>Admin</Text></View>}
-                    {m.userId === user?.id && <View style={styles.youBadge}><Text style={styles.youBadgeText}>You</Text></View>}
-                  </View>
-                  <Text style={styles.memberStatText}>{m.sessionCount} walks · {fmtDist(m.totalDistance)}</Text>
-                </View>
-                {m.userId !== user?.id && (
-                  <View style={styles.memberActions}>
-                    <Pressable
-                      onPress={() => Alert.alert(
-                        m.role === "admin" ? "Remove Admin" : "Make Admin",
-                        `${m.role === "admin" ? "Remove admin role from" : "Grant admin role to"} ${m.displayName}?`,
-                        [{ text: "Cancel", style: "cancel" }, { text: "Confirm", onPress: () => roleMutation.mutate({ userId: m.userId, newRole: m.role === "admin" ? "participant" : "admin" }) }]
-                      )}
-                      style={styles.actionBtn} hitSlop={8}
-                    >
-                      <Feather name={m.role === "admin" ? "shield-off" : "shield"} size={16} color={m.role === "admin" ? "#FF9500" : "#33C3F0"} />
+              <Feather name={membersExpanded ? "chevron-up" : "chevron-down"} size={16} color="#6B7280" />
+            </Pressable>
+            {membersExpanded && (
+              <>
+                <View style={[styles.sortPills, { marginBottom: 12 }]}>
+                  {(["walks", "distance", "name"] as SortKey[]).map((k) => (
+                    <Pressable key={k} onPress={() => handleSetSortBy(k)} style={[styles.sortPill, sortBy === k && styles.sortPillActive]}>
+                      <Text style={[styles.sortPillText, sortBy === k && styles.sortPillTextActive]}>{k.charAt(0).toUpperCase() + k.slice(1)}</Text>
                     </Pressable>
-                    <Pressable
-                      onPress={() => Alert.alert("Remove Member", `Remove ${m.displayName}?`, [
-                        { text: "Cancel", style: "cancel" },
-                        { text: "Remove", style: "destructive", onPress: () => removeMutation.mutate(m.userId) },
-                      ])}
-                      style={styles.actionBtn} hitSlop={8}
-                    >
-                      <Feather name="user-x" size={16} color="#FF3B30" />
-                    </Pressable>
-                  </View>
+                  ))}
+                </View>
+                {membersLoading ? (
+                  <ActivityIndicator color="#33C3F0" style={{ marginVertical: 20 }} />
+                ) : (
+                  <>
+                    {sorted.slice(0, membersVisible).map((m) => (
+                      <View key={m.userId} style={styles.memberCard}>
+                        <View style={styles.memberAvatar}>
+                          <Text style={styles.memberInitial}>{m.displayName.charAt(0).toUpperCase()}</Text>
+                        </View>
+                        <View style={styles.memberInfo}>
+                          <View style={styles.memberNameRow}>
+                            <Text style={styles.memberName}>{m.displayName}</Text>
+                            {m.role === "admin" && <View style={styles.adminBadge}><Text style={styles.adminBadgeText}>Admin</Text></View>}
+                            {m.userId === user?.id && <View style={styles.youBadge}><Text style={styles.youBadgeText}>You</Text></View>}
+                          </View>
+                          <Text style={styles.memberStatText}>{m.sessionCount} walks · {fmtDist(m.totalDistance)}</Text>
+                        </View>
+                        {m.userId !== user?.id && (
+                          <View style={styles.memberActions}>
+                            <Pressable
+                              onPress={() => Alert.alert(
+                                m.role === "admin" ? "Remove Admin" : "Make Admin",
+                                `${m.role === "admin" ? "Remove admin role from" : "Grant admin role to"} ${m.displayName}?`,
+                                [{ text: "Cancel", style: "cancel" }, { text: "Confirm", onPress: () => roleMutation.mutate({ userId: m.userId, newRole: m.role === "admin" ? "participant" : "admin" }) }]
+                              )}
+                              style={styles.actionBtn} hitSlop={8}
+                            >
+                              <Feather name={m.role === "admin" ? "shield-off" : "shield"} size={16} color={m.role === "admin" ? "#FF9500" : "#33C3F0"} />
+                            </Pressable>
+                            <Pressable
+                              onPress={() => Alert.alert("Remove Member", `Remove ${m.displayName}?`, [
+                                { text: "Cancel", style: "cancel" },
+                                { text: "Remove", style: "destructive", onPress: () => removeMutation.mutate(m.userId) },
+                              ])}
+                              style={styles.actionBtn} hitSlop={8}
+                            >
+                              <Feather name="user-x" size={16} color="#FF3B30" />
+                            </Pressable>
+                          </View>
+                        )}
+                      </View>
+                    ))}
+                    {sorted.length > PAGE_SIZE && (
+                      <Pressable
+                        onPress={() => {
+                          if (membersVisible >= sorted.length) {
+                            setMembersVisible(PAGE_SIZE);
+                          } else {
+                            setMembersVisible((v) => Math.min(v + PAGE_SIZE, sorted.length));
+                          }
+                        }}
+                        style={styles.showMoreBtn}
+                      >
+                        <Text style={styles.showMoreText}>
+                          {membersVisible >= sorted.length
+                            ? "Show less"
+                            : `Show ${Math.min(PAGE_SIZE, sorted.length - membersVisible)} more · ${sorted.length} total`}
+                        </Text>
+                        <Feather name={membersVisible >= sorted.length ? "chevron-up" : "chevron-down"} size={14} color="#6B7280" />
+                      </Pressable>
+                    )}
+                  </>
                 )}
-              </View>
-            ))}
+              </>
+            )}
           </>
         ) : (
           <View style={styles.memberMessage}>
@@ -526,6 +562,9 @@ const styles = StyleSheet.create({
   adminBadgeText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#FFCC00" },
   youBadge: { backgroundColor: "rgba(51,195,240,0.12)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
   youBadgeText: { fontSize: 10, fontFamily: "Inter_600SemiBold", color: "#33C3F0" },
+  memberCountLabel: { fontSize: 12, fontFamily: "Inter_500Medium", color: "#6B7280", backgroundColor: "#1A1A35", paddingHorizontal: 7, paddingVertical: 2, borderRadius: 10 },
+  showMoreBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, marginBottom: 4 },
+  showMoreText: { fontSize: 13, fontFamily: "Inter_500Medium", color: "#6B7280" },
   memberActions: { flexDirection: "row", gap: 4 },
   actionBtn: { padding: 6 },
   memberMessage: { alignItems: "center", paddingVertical: 40, gap: 12 },
