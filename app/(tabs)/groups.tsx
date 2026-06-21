@@ -62,6 +62,8 @@ export default function GroupsScreen() {
   const [showCreateBranchModal, setShowCreateBranchModal] = useState(false);
   const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
   const [showAccountModal, setShowAccountModal] = useState(false);
+  const [branchesExpanded, setBranchesExpanded] = useState(true);
+  const [teamsExpanded, setTeamsExpanded] = useState(true);
 
   const [churchName, setChurchName] = useState("");
   const [joinCode, setJoinCode] = useState("");
@@ -450,210 +452,241 @@ export default function GroupsScreen() {
             </Pressable>
 
             {/* ── Branches ── */}
-            <View style={styles.levelHeader}>
+            <Pressable
+              onPress={() => setBranchesExpanded((v) => !v)}
+              style={styles.levelHeader}
+            >
               <View style={styles.levelHeaderLeft}>
                 <Feather name="git-branch" size={16} color="#4CD964" />
                 <Text style={styles.levelHeaderLabel}>Branch</Text>
               </View>
-              {isChurchAdmin && (
-                <Pressable
-                  onPress={() => { setError(""); setShowCreateBranchModal(true); }}
-                  style={({ pressed }) => [styles.smallBtn, { opacity: pressed ? 0.7 : 1 }]}
-                  hitSlop={4}
-                >
-                  <Feather name="plus" size={14} color="#4CD964" />
-                  <Text style={[styles.smallBtnText, { color: "#4CD964" }]}>New</Text>
-                </Pressable>
-              )}
-            </View>
-
-            {branchLoading ? (
-              <ActivityIndicator color="#4CD964" style={{ marginVertical: 12 }} />
-            ) : !branches || branches.length === 0 ? (
-              <View style={styles.emptyCard}>
-                <Text style={styles.emptySubtext}>
-                  {isChurchAdmin ? "Create the first branch for your church." : "No branches yet — ask your church admin to create one."}
-                </Text>
+              <View style={styles.levelHeaderRight}>
+                {isChurchAdmin && branchesExpanded && (
+                  <Pressable
+                    onPress={() => { setError(""); setShowCreateBranchModal(true); }}
+                    style={({ pressed }) => [styles.smallBtn, { opacity: pressed ? 0.7 : 1 }]}
+                    hitSlop={4}
+                  >
+                    <Feather name="plus" size={14} color="#4CD964" />
+                    <Text style={[styles.smallBtnText, { color: "#4CD964" }]}>New</Text>
+                  </Pressable>
+                )}
+                <Feather
+                  name={branchesExpanded ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color="#6B7280"
+                  style={{ marginLeft: 4 }}
+                />
               </View>
-            ) : accessibleBranches.length > 0 ? (
+            </Pressable>
+
+            {branchesExpanded && (
               <>
-                {accessibleBranches.map((branch) => {
-                  const isDirectMember = branch.myStatus === "active";
-                  const branchIsAdmin = branch.role === "admin";
-                  return (
-                    <Pressable
-                      key={branch.id}
-                      onPress={() => router.push({ pathname: "/branch-detail", params: { id: branch.id, name: branch.name, role: branch.role ?? "participant" } })}
-                      style={({ pressed }) => [styles.entityCard, { borderLeftColor: "#4CD964", opacity: pressed ? 0.85 : 1 }]}
-                    >
-                      <View style={styles.entityCardMain}>
-                        <Text style={styles.entityName}>{branch.name}</Text>
-                        <Text style={styles.memberCount}>{branch.memberCount} member{branch.memberCount !== 1 ? "s" : ""}</Text>
-                      </View>
-                      <View style={styles.entityCardActions}>
-                        {branchIsAdmin && pendingForBranch(branch.id) > 0 && (
-                          <View style={styles.pendingBadge}>
-                            <Feather name="bell" size={10} color="#fff" />
-                            <Text style={styles.pendingBadgeText}>{pendingForBranch(branch.id)}</Text>
-                          </View>
-                        )}
-                        {branchIsAdmin && (
-                          <View style={styles.adminBadge}>
-                            <Feather name="shield" size={10} color="#FFCC00" />
-                            <Text style={styles.adminBadgeText}>Admin</Text>
-                          </View>
-                        )}
-                        {isDirectMember && (
-                          <Pressable onPress={handleLeaveBranch} style={styles.iconAction} hitSlop={8}>
-                            <Feather name="log-out" size={16} color="#FF3B30" />
-                          </Pressable>
-                        )}
-                      </View>
-                    </Pressable>
-                  );
-                })}
-
-                {/* Inline Teams section — only when the user has a single direct branch.
-                    For church admins with multiple branches, teams are managed by tapping into each branch. */}
-                {myBranch && accessibleBranches.length === 1 && (
-                  <>
-                {/* ── Teams ── */}
-                <View style={styles.levelHeader}>
-                  <View style={styles.levelHeaderLeft}>
-                    <Feather name="users" size={16} color="#FF9500" />
-                    <Text style={styles.levelHeaderLabel}>Teams</Text>
-                  </View>
-                  {isBranchAdmin && (
-                    <Pressable
-                      onPress={() => { setError(""); setShowCreateTeamModal(true); }}
-                      style={({ pressed }) => [styles.smallBtn, { opacity: pressed ? 0.7 : 1 }]}
-                      hitSlop={4}
-                    >
-                      <Feather name="plus" size={14} color="#FF9500" />
-                      <Text style={[styles.smallBtnText, { color: "#FF9500" }]}>New</Text>
-                    </Pressable>
-                  )}
-                </View>
-
-                {teamLoading ? (
-                  <ActivityIndicator color="#FF9500" style={{ marginVertical: 12 }} />
-                ) : !teams || teams.length === 0 ? (
+                {branchLoading ? (
+                  <ActivityIndicator color="#4CD964" style={{ marginVertical: 12 }} />
+                ) : !branches || branches.length === 0 ? (
                   <View style={styles.emptyCard}>
                     <Text style={styles.emptySubtext}>
-                      {isBranchAdmin ? "Create the first team for your branch." : "No teams yet — ask your branch admin to create one."}
+                      {isChurchAdmin ? "Create the first branch for your church." : "No branches yet — ask your church admin to create one."}
                     </Text>
                   </View>
-                ) : (
-                  teams.map((team) => (
-                    <Pressable
-                      key={team.id}
-                      onPress={() => router.push({ pathname: "/team-detail", params: { id: team.id, name: team.name, role: team.role ?? "none" } })}
-                      style={({ pressed }) => [styles.entityCard, { borderLeftColor: "#FF9500", opacity: pressed ? 0.85 : 1 }]}
-                    >
-                      <View style={styles.entityCardMain}>
-                        <Text style={styles.entityName}>{team.name}</Text>
-                        <Text style={styles.memberCount}>{team.memberCount} member{team.memberCount !== 1 ? "s" : ""}</Text>
-                      </View>
-                      <View style={styles.entityCardActions}>
-                        {team.role !== null ? (
-                          <>
-                            {team.role === "admin" && pendingForTeam(team.id) > 0 && (
+                ) : accessibleBranches.length > 0 ? (
+                  <>
+                    {accessibleBranches.map((branch) => {
+                      const isDirectMember = branch.myStatus === "active";
+                      const branchIsAdmin = branch.role === "admin";
+                      return (
+                        <Pressable
+                          key={branch.id}
+                          onPress={() => router.push({ pathname: "/branch-detail", params: { id: branch.id, name: branch.name, role: branch.role ?? "participant" } })}
+                          style={({ pressed }) => [styles.entityCard, { borderLeftColor: "#4CD964", opacity: pressed ? 0.85 : 1 }]}
+                        >
+                          <View style={styles.entityCardMain}>
+                            <Text style={styles.entityName}>{branch.name}</Text>
+                            <Text style={styles.memberCount}>{branch.memberCount} member{branch.memberCount !== 1 ? "s" : ""}</Text>
+                          </View>
+                          <View style={styles.entityCardActions}>
+                            {branchIsAdmin && pendingForBranch(branch.id) > 0 && (
                               <View style={styles.pendingBadge}>
                                 <Feather name="bell" size={10} color="#fff" />
-                                <Text style={styles.pendingBadgeText}>{pendingForTeam(team.id)}</Text>
+                                <Text style={styles.pendingBadgeText}>{pendingForBranch(branch.id)}</Text>
                               </View>
                             )}
-                            {team.role === "admin" && (
+                            {branchIsAdmin && (
                               <View style={styles.adminBadge}>
                                 <Feather name="shield" size={10} color="#FFCC00" />
                                 <Text style={styles.adminBadgeText}>Admin</Text>
                               </View>
                             )}
-                            {team.role === "participant" && (
-                              <View style={[styles.adminBadge, { backgroundColor: "rgba(76,217,100,0.15)" }]}>
-                                <Text style={[styles.adminBadgeText, { color: "#4CD964" }]}>Joined</Text>
-                              </View>
+                            {isDirectMember && (
+                              <Pressable onPress={handleLeaveBranch} style={styles.iconAction} hitSlop={8}>
+                                <Feather name="log-out" size={16} color="#FF3B30" />
+                              </Pressable>
                             )}
-                            <Pressable
-                              onPress={() => handleLeaveTeam(team)}
-                              style={styles.iconAction}
-                              hitSlop={8}
-                              onStartShouldSetResponder={() => true}
-                            >
-                              <Feather name="log-out" size={16} color="#FF3B30" />
-                            </Pressable>
+                          </View>
+                        </Pressable>
+                      );
+                    })}
+
+                    {/* Inline Teams section — only when the user has a single direct branch. */}
+                    {myBranch && accessibleBranches.length === 1 && (
+                      <>
+                        {/* ── Teams ── */}
+                        <Pressable
+                          onPress={() => setTeamsExpanded((v) => !v)}
+                          style={styles.levelHeader}
+                        >
+                          <View style={styles.levelHeaderLeft}>
+                            <Feather name="users" size={16} color="#FF9500" />
+                            <Text style={styles.levelHeaderLabel}>Teams</Text>
+                          </View>
+                          <View style={styles.levelHeaderRight}>
+                            {isBranchAdmin && teamsExpanded && (
+                              <Pressable
+                                onPress={() => { setError(""); setShowCreateTeamModal(true); }}
+                                style={({ pressed }) => [styles.smallBtn, { opacity: pressed ? 0.7 : 1 }]}
+                                hitSlop={4}
+                              >
+                                <Feather name="plus" size={14} color="#FF9500" />
+                                <Text style={[styles.smallBtnText, { color: "#FF9500" }]}>New</Text>
+                              </Pressable>
+                            )}
+                            <Feather
+                              name={teamsExpanded ? "chevron-up" : "chevron-down"}
+                              size={16}
+                              color="#6B7280"
+                              style={{ marginLeft: 4 }}
+                            />
+                          </View>
+                        </Pressable>
+
+                        {teamsExpanded && (
+                          <>
+                            {teamLoading ? (
+                              <ActivityIndicator color="#FF9500" style={{ marginVertical: 12 }} />
+                            ) : !teams || teams.length === 0 ? (
+                              <View style={styles.emptyCard}>
+                                <Text style={styles.emptySubtext}>
+                                  {isBranchAdmin ? "Create the first team for your branch." : "No teams yet — ask your branch admin to create one."}
+                                </Text>
+                              </View>
+                            ) : (
+                              <>
+                                {teams.map((team) => (
+                                  <Pressable
+                                    key={team.id}
+                                    onPress={() => router.push({ pathname: "/team-detail", params: { id: team.id, name: team.name, role: team.role ?? "none" } })}
+                                    style={({ pressed }) => [styles.entityCard, { borderLeftColor: "#FF9500", opacity: pressed ? 0.85 : 1 }]}
+                                  >
+                                    <View style={styles.entityCardMain}>
+                                      <Text style={styles.entityName}>{team.name}</Text>
+                                      <Text style={styles.memberCount}>{team.memberCount} member{team.memberCount !== 1 ? "s" : ""}</Text>
+                                    </View>
+                                    <View style={styles.entityCardActions}>
+                                      {team.role !== null ? (
+                                        <>
+                                          {team.role === "admin" && pendingForTeam(team.id) > 0 && (
+                                            <View style={styles.pendingBadge}>
+                                              <Feather name="bell" size={10} color="#fff" />
+                                              <Text style={styles.pendingBadgeText}>{pendingForTeam(team.id)}</Text>
+                                            </View>
+                                          )}
+                                          {team.role === "admin" && (
+                                            <View style={styles.adminBadge}>
+                                              <Feather name="shield" size={10} color="#FFCC00" />
+                                              <Text style={styles.adminBadgeText}>Admin</Text>
+                                            </View>
+                                          )}
+                                          {team.role === "participant" && (
+                                            <View style={[styles.adminBadge, { backgroundColor: "rgba(76,217,100,0.15)" }]}>
+                                              <Text style={[styles.adminBadgeText, { color: "#4CD964" }]}>Joined</Text>
+                                            </View>
+                                          )}
+                                          <Pressable
+                                            onPress={() => handleLeaveTeam(team)}
+                                            style={styles.iconAction}
+                                            hitSlop={8}
+                                            onStartShouldSetResponder={() => true}
+                                          >
+                                            <Feather name="log-out" size={16} color="#FF3B30" />
+                                          </Pressable>
+                                        </>
+                                      ) : team.myStatus === "pending" ? (
+                                        <Pressable
+                                          onPress={() => handleCancelTeamRequest(team)}
+                                          disabled={cancelTeamRequestMutation.isPending}
+                                          style={({ pressed }) => [styles.pendingPill, { opacity: pressed ? 0.6 : 1 }]}
+                                          testID={`team-pending-${team.id}`}
+                                          hitSlop={6}
+                                        >
+                                          <Feather name="clock" size={12} color="#FF9500" />
+                                          <Text style={styles.pendingPillText}>Pending</Text>
+                                          <Feather name="x" size={12} color="#FF9500" />
+                                        </Pressable>
+                                      ) : (
+                                        <Pressable
+                                          onPress={() => joinTeamMutation.mutate(team.id)}
+                                          disabled={joinTeamMutation.isPending}
+                                          style={({ pressed }) => [styles.joinBtn, { opacity: pressed ? 0.7 : 1 }]}
+                                        >
+                                          {joinTeamMutation.isPending ? (
+                                            <ActivityIndicator size="small" color="#FF9500" />
+                                          ) : (
+                                            <Text style={styles.joinBtnText}>Join</Text>
+                                          )}
+                                        </Pressable>
+                                      )}
+                                    </View>
+                                  </Pressable>
+                                ))}
+                              </>
+                            )}
                           </>
-                        ) : team.myStatus === "pending" ? (
+                        )}
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.pickBranchHint}>Pick a branch to join:</Text>
+                    {branches.map((branch) => (
+                      <View
+                        key={branch.id}
+                        style={[styles.entityCard, { borderLeftColor: "#4CD964" }]}
+                      >
+                        <View style={styles.entityCardMain}>
+                          <Text style={styles.entityName}>{branch.name}</Text>
+                          <Text style={styles.memberCount}>{branch.memberCount} member{branch.memberCount !== 1 ? "s" : ""}</Text>
+                        </View>
+                        {branch.myStatus === "pending" ? (
                           <Pressable
-                            onPress={() => handleCancelTeamRequest(team)}
-                            disabled={cancelTeamRequestMutation.isPending}
-                            style={({ pressed }) => [styles.pendingPill, { opacity: pressed ? 0.6 : 1 }]}
-                            testID={`team-pending-${team.id}`}
+                            onPress={() => handleCancelBranchRequest(branch)}
+                            disabled={cancelBranchRequestMutation.isPending}
+                            style={({ pressed }) => [styles.pendingPill, { backgroundColor: "rgba(76,217,100,0.15)", opacity: pressed ? 0.6 : 1 }]}
+                            testID={`branch-pending-${branch.id}`}
                             hitSlop={6}
                           >
-                            <Feather name="clock" size={12} color="#FF9500" />
-                            <Text style={styles.pendingPillText}>Pending</Text>
-                            <Feather name="x" size={12} color="#FF9500" />
+                            <Feather name="clock" size={12} color="#4CD964" />
+                            <Text style={[styles.pendingPillText, { color: "#4CD964" }]}>Pending</Text>
+                            <Feather name="x" size={12} color="#4CD964" />
                           </Pressable>
                         ) : (
                           <Pressable
-                            onPress={() => joinTeamMutation.mutate(team.id)}
-                            disabled={joinTeamMutation.isPending}
+                            onPress={() => joinBranchMutation.mutate(branch.id)}
+                            disabled={joinBranchMutation.isPending}
                             style={({ pressed }) => [styles.joinBtn, { opacity: pressed ? 0.7 : 1 }]}
                           >
-                            {joinTeamMutation.isPending ? (
-                              <ActivityIndicator size="small" color="#FF9500" />
+                            {joinBranchMutation.isPending ? (
+                              <ActivityIndicator size="small" color="#4CD964" />
                             ) : (
-                              <Text style={styles.joinBtnText}>Join</Text>
+                              <Text style={[styles.joinBtnText, { color: "#4CD964" }]}>Join</Text>
                             )}
                           </Pressable>
                         )}
                       </View>
-                    </Pressable>
-                  ))
-                )}
+                    ))}
                   </>
                 )}
-              </>
-            ) : (
-              <>
-                <Text style={styles.pickBranchHint}>Pick a branch to join:</Text>
-                {branches.map((branch) => (
-                  <View
-                    key={branch.id}
-                    style={[styles.entityCard, { borderLeftColor: "#4CD964" }]}
-                  >
-                    <View style={styles.entityCardMain}>
-                      <Text style={styles.entityName}>{branch.name}</Text>
-                      <Text style={styles.memberCount}>{branch.memberCount} member{branch.memberCount !== 1 ? "s" : ""}</Text>
-                    </View>
-                    {branch.myStatus === "pending" ? (
-                      <Pressable
-                        onPress={() => handleCancelBranchRequest(branch)}
-                        disabled={cancelBranchRequestMutation.isPending}
-                        style={({ pressed }) => [styles.pendingPill, { backgroundColor: "rgba(76,217,100,0.15)", opacity: pressed ? 0.6 : 1 }]}
-                        testID={`branch-pending-${branch.id}`}
-                        hitSlop={6}
-                      >
-                        <Feather name="clock" size={12} color="#4CD964" />
-                        <Text style={[styles.pendingPillText, { color: "#4CD964" }]}>Pending</Text>
-                        <Feather name="x" size={12} color="#4CD964" />
-                      </Pressable>
-                    ) : (
-                      <Pressable
-                        onPress={() => joinBranchMutation.mutate(branch.id)}
-                        disabled={joinBranchMutation.isPending}
-                        style={({ pressed }) => [styles.joinBtn, { opacity: pressed ? 0.7 : 1 }]}
-                      >
-                        {joinBranchMutation.isPending ? (
-                          <ActivityIndicator size="small" color="#4CD964" />
-                        ) : (
-                          <Text style={[styles.joinBtnText, { color: "#4CD964" }]}>Join</Text>
-                        )}
-                      </Pressable>
-                    )}
-                  </View>
-                ))}
               </>
             )}
           </>
