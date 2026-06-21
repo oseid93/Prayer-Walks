@@ -1,2 +1,3 @@
 - [npm overrides & Expo vulns](npm-overrides-and-expo-vulns.md) — fix transitive vulns via incremental overrides; never clean-reinstall (drifts tree, breaks patches); remaining moderates need expo@56.
 - [Migration concurrency on boot](migration-concurrency.md) — runMigrations runs on every boot; keep session-level pg_advisory_lock outside the txn + retry so concurrent boots don't deadlock.
+- [Lockfile Replit registry URLs](lockfile-replit-registry.md) — after any npm install inside Replit, package-lock.json gets resolved URLs pointing to package-firewall.replit.local; Expo Launch builds fail with ENOTFOUND. Fix: sed replace all occurrences with https://registry.npmjs.org/.
