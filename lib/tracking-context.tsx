@@ -147,12 +147,18 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
 
       if (newPts.length === 0) return;
 
-      // Merge and sort chronologically
+      // Merge and sort chronologically. We must keep a full chronological sort
+      // (not an append-only tail) so that a contiguous block of points captured
+      // while the screen was LOCKED is inserted in its correct position even if
+      // a foreground fix has already landed after app-return — dropping those
+      // would lose exactly the background segment this feature exists to record.
       const all = [...prev, ...newPts].sort(
         (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
       );
 
-      // Calculate extra distance from the newly inserted background points
+      // Distance added by the newly inserted points. For each new point, add the
+      // hop from its chronological predecessor; this keeps a single, consistent
+      // incremental distance model shared with the foreground watch.
       let extraDist = 0;
       for (const pt of newPts) {
         const idx = all.findIndex((p) => p.timestamp === pt.timestamp);
@@ -625,16 +631,14 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       );
     }
 
-    try {
-      const headingSub = await Location.watchHeadingAsync((h) => {
-        if (h.trueHeading >= 0) {
-          setHeading(h.trueHeading);
-        } else if (h.magHeading >= 0) {
-          setHeading(h.magHeading);
-        }
-      });
-      headingSubRef.current = headingSub;
-    } catch {}
+    // NOTE: We intentionally do NOT subscribe to the magnetometer compass
+    // (Location.watchHeadingAsync) here. The compass reports which way the
+    // phone is physically pointing, which fires constantly and would overwrite
+    // the direction-of-travel bearing used to orient the navigation camera.
+    // Held in a hand or pocket, that made the map spin to face the wrong
+    // direction. Heading is now derived solely from movement (point-to-point
+    // bearing in the foreground watch and background merge), which is the
+    // correct course-up behaviour for a walk tracker.
 
     return { backgroundReady };
   }, []);
