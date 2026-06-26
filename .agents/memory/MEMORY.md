@@ -1,4 +1,5 @@
 - [npm overrides & Expo vulns](npm-overrides-and-expo-vulns.md) — fix transitive vulns via incremental overrides; never clean-reinstall (drifts tree, breaks patches); remaining moderates need expo@56.
 - [Migration concurrency on boot](migration-concurrency.md) — runMigrations runs on every boot; keep session-level pg_advisory_lock outside the txn + retry so concurrent boots don't deadlock.
 - [GPS heading & bg merge](gps-heading-and-merge.md) — heading must be travel-bearing not compass (else map spins wrong way); bg-point merge must full-sort, never append-only (append drops locked-screen block).
+- [Running tests](running-tests.md) — no jest/test script (can't edit package.json); run `node --import tsx --test lib/__tests__/*.test.ts`; keep pure logic dep-free for plain-Node tests.
 - [Lockfile Replit registry URLs](lockfile-replit-registry.md) — after any npm install inside Replit, package-lock.json gets resolved URLs pointing to package-firewall.replit.local; Expo Launch builds fail with ENOTFOUND. Fix: sed replace all occurrences with https://registry.npmjs.org/.

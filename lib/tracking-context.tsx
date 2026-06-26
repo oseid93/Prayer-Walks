@@ -12,6 +12,12 @@ import {
   BG_ACTIVE_KEY,
 } from "@/lib/location-task";
 import { logTracking } from "@/lib/tracking-log";
+import {
+  haversineDistance,
+  calculateBearing,
+  mergeTrackPoints,
+  foregroundStep,
+} from "@/lib/tracking-math";
 
 interface TrackingPoint {
   latitude: number;
@@ -46,42 +52,6 @@ interface TrackingContextType {
 }
 
 const TrackingContext = createContext<TrackingContextType | undefined>(undefined);
-
-function haversineDistance(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const R = 6371;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) *
-      Math.cos((lat2 * Math.PI) / 180) *
-      Math.sin(dLon / 2) *
-      Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
-
-function calculateBearing(
-  lat1: number,
-  lon1: number,
-  lat2: number,
-  lon2: number,
-): number {
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const lat1Rad = (lat1 * Math.PI) / 180;
-  const lat2Rad = (lat2 * Math.PI) / 180;
-  const y = Math.sin(dLon) * Math.cos(lat2Rad);
-  const x =
-    Math.cos(lat1Rad) * Math.sin(lat2Rad) -
-    Math.sin(lat1Rad) * Math.cos(lat2Rad) * Math.cos(dLon);
-  let bearing = (Math.atan2(y, x) * 180) / Math.PI;
-  return (bearing + 360) % 360;
-}
 
 export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<TrackingState>("idle");
@@ -129,10 +99,15 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       const bgPoints: TrackingPoint[] = JSON.parse(raw);
       if (bgPoints.length === 0) return;
 
-      // Use ref so we don't need currentPoints in deps
+      // Use ref so we don't need currentPoints in deps. mergeTrackPoints keeps
+      // a full chronological sort (never an append-only tail) so a contiguous
+      // block of points captured while the screen was LOCKED is inserted in its
+      // correct position even if a fresh foreground fix has already landed after
+      // app-return — dropping those would lose exactly the background segment
+      // this feature exists to record. See lib/tracking-math.ts (unit-tested).
       const prev = currentPointsRef.current;
-      const existingTs = new Set(prev.map((p) => p.timestamp));
-      const newPts = bgPoints.filter((p) => !existingTs.has(p.timestamp));
+      const { merged: all, extraDistance: extraDist, heading: newHeading, added: newPts } =
+        mergeTrackPoints(prev, bgPoints);
 
       logTracking(
         "foreground_merge",
@@ -140,36 +115,12 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           buffered: bgPoints.length,
           merged: newPts.length,
           duplicates: bgPoints.length - newPts.length,
-          totalPoints: prev.length + newPts.length,
+          totalPoints: all.length,
         },
         { remote: true },
       );
 
       if (newPts.length === 0) return;
-
-      // Merge and sort chronologically. We must keep a full chronological sort
-      // (not an append-only tail) so that a contiguous block of points captured
-      // while the screen was LOCKED is inserted in its correct position even if
-      // a foreground fix has already landed after app-return — dropping those
-      // would lose exactly the background segment this feature exists to record.
-      const all = [...prev, ...newPts].sort(
-        (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-      );
-
-      // Distance added by the newly inserted points. For each new point, add the
-      // hop from its chronological predecessor; this keeps a single, consistent
-      // incremental distance model shared with the foreground watch.
-      let extraDist = 0;
-      for (const pt of newPts) {
-        const idx = all.findIndex((p) => p.timestamp === pt.timestamp);
-        if (idx > 0) {
-          const before = all[idx - 1];
-          extraDist += haversineDistance(
-            before.latitude, before.longitude,
-            pt.latitude, pt.longitude,
-          );
-        }
-      }
 
       // Buffer new points for server sync
       newPts.forEach((p) => pointsBufferRef.current.push(p));
@@ -183,15 +134,8 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           return next;
         });
       }
-      if (all.length >= 2) {
-        const last = all[all.length - 1];
-        const secondLast = all[all.length - 2];
-        setHeading(
-          calculateBearing(
-            secondLast.latitude, secondLast.longitude,
-            last.latitude, last.longitude,
-          ),
-        );
+      if (newHeading !== null) {
+        setHeading(newHeading);
       }
     } catch (e: any) {
       logTracking("foreground_merge_error", { message: e?.message ?? String(e) });
@@ -549,24 +493,11 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           accuracy: loc.coords.accuracy,
         };
 
-        const prev = prevLocationRef.current;
-        if (prev) {
-          const d = haversineDistance(
-            prev.latitude,
-            prev.longitude,
-            point.latitude,
-            point.longitude,
-          );
-          if (d > 0.002) {
-            setDistance((prevDist) => prevDist + d);
-            setHeading(
-              calculateBearing(
-                prev.latitude,
-                prev.longitude,
-                point.latitude,
-                point.longitude,
-              ),
-            );
+        const step = foregroundStep(prevLocationRef.current, point);
+        if (step.moved) {
+          setDistance((prevDist) => prevDist + step.distanceDelta);
+          if (step.heading !== null) {
+            setHeading(step.heading);
           }
         }
         prevLocationRef.current = {
