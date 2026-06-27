@@ -81,12 +81,12 @@ ensurePreviewReachable = "/status"
 name = "test"
 author = "agent"
 
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "node --import tsx --test lib/__tests__/*.test.ts"
-
 [workflows.workflow.metadata]
 isValidation = true
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node --import tsx --test lib/__tests__/*.test.ts server/__tests__/*.test.ts"
 
 [postMerge]
 path = "scripts/post-merge.sh"

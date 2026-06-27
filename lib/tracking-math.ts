@@ -156,3 +156,59 @@ export function mergeTrackPoints<T extends GeoPoint>(
 
   return { merged, extraDistance, heading, added };
 }
+
+// Seconds elapsed since a walk's start, used to drive the live session timer.
+// Faithful to the interval that ticks the on-screen clock: a plain floor of the
+// millisecond delta.
+export function elapsedSeconds(startTimeMs: number, nowMs: number): number {
+  return Math.floor((nowMs - startTimeMs) / 1000);
+}
+
+export interface TimedPoint {
+  latitude: number;
+  longitude: number;
+  timestamp: string | number | Date;
+}
+
+export interface FinalizedSession {
+  // Total route distance (km) summed over chronologically-ordered hops.
+  distance: number;
+  // Wall-clock duration (seconds) between the first and last point.
+  duration: number;
+  // Number of points considered.
+  count: number;
+}
+
+// Reconstruct a session's distance and duration purely from its recorded points.
+//
+// Used by cold-start recovery: when iOS suspends/terminates the app mid-walk the
+// in-memory totals are lost, so on next launch the session is finalized from its
+// persisted points instead. Points are sorted by timestamp first so an
+// out-of-order buffer (e.g. a locked-screen block flushed late) still yields the
+// correct distance and duration rather than a straight line.
+export function finalizeFromPoints(points: TimedPoint[]): FinalizedSession {
+  const sorted = [...points].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
+  );
+  let distance = 0;
+  for (let i = 1; i < sorted.length; i++) {
+    distance += haversineDistance(
+      sorted[i - 1].latitude,
+      sorted[i - 1].longitude,
+      sorted[i].latitude,
+      sorted[i].longitude,
+    );
+  }
+  let duration = 0;
+  if (sorted.length >= 2) {
+    duration = Math.max(
+      0,
+      Math.floor(
+        (new Date(sorted[sorted.length - 1].timestamp).getTime() -
+          new Date(sorted[0].timestamp).getTime()) /
+          1000,
+      ),
+    );
+  }
+  return { distance, duration, count: sorted.length };
+}

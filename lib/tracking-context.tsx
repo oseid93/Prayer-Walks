@@ -17,7 +17,10 @@ import {
   calculateBearing,
   mergeTrackPoints,
   foregroundStep,
+  elapsedSeconds,
+  finalizeFromPoints,
 } from "@/lib/tracking-math";
+import { drainBuffer, requeueFailed } from "@/lib/tracking-buffer";
 
 interface TrackingPoint {
   latitude: number;
@@ -223,33 +226,14 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
             longitude: number;
             timestamp: string;
           }> = await res.json();
-          const sorted = [...points].sort(
-            (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
-          );
-          let dist = 0;
-          for (let i = 1; i < sorted.length; i++) {
-            dist += haversineDistance(
-              sorted[i - 1].latitude, sorted[i - 1].longitude,
-              sorted[i].latitude, sorted[i].longitude,
-            );
-          }
-          let duration = 0;
-          if (sorted.length >= 2) {
-            duration = Math.max(
-              0,
-              Math.floor(
-                (new Date(sorted[sorted.length - 1].timestamp).getTime() -
-                  new Date(sorted[0].timestamp).getTime()) / 1000,
-              ),
-            );
-          }
+          const { distance: dist, duration, count } = finalizeFromPoints(points);
           await apiRequest("PUT", `/api/sessions/${sid}/end`, {
             totalDistance: dist,
             totalDuration: duration,
           });
           logTracking(
             "recovery_finalized",
-            { sessionId: sid, points: sorted.length, distance: dist, duration, bufferedCount },
+            { sessionId: sid, points: count, distance: dist, duration, bufferedCount },
             { remote: true },
           );
           queryClient.invalidateQueries({ queryKey: ["/api/sessions"] });
@@ -400,14 +384,14 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       await mergeBackgroundPoints();
 
       if (pointsBufferRef.current.length === 0) return;
-      const pointsToSync = [...pointsBufferRef.current];
-      pointsBufferRef.current = [];
+      const { toSync, remaining } = drainBuffer(pointsBufferRef.current);
+      pointsBufferRef.current = remaining;
       try {
         await apiRequest("POST", `/api/sessions/${sid}/points`, {
-          points: pointsToSync,
+          points: toSync,
         });
       } catch {
-        pointsBufferRef.current = [...pointsToSync, ...pointsBufferRef.current];
+        pointsBufferRef.current = requeueFailed(toSync, pointsBufferRef.current);
       }
     },
     [mergeBackgroundPoints],
@@ -669,9 +653,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       sessionStartedAtRef.current = new Date();
 
       timerRef.current = setInterval(() => {
-        const now = Date.now();
-        const elapsed = Math.floor((now - startTimeRef.current) / 1000);
-        setElapsedTime(elapsed);
+        setElapsedTime(elapsedSeconds(startTimeRef.current, Date.now()));
       }, 1000);
 
       isTrackingActiveRef.current = true;
