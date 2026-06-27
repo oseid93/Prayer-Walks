@@ -2325,6 +2325,17 @@ function configureExpoAndLanding(app2) {
   );
   const landingPageTemplate = fs.readFileSync(templatePath, "utf-8");
   const appName = getAppName();
+  const privacyPolicyPath = path.resolve(
+    process.cwd(),
+    "server",
+    "templates",
+    "privacy-policy.html"
+  );
+  const privacyPolicyTemplate = fs.readFileSync(privacyPolicyPath, "utf-8");
+  app2.get("/privacy-policy", (_req, res) => {
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.status(200).send(privacyPolicyTemplate);
+  });
   log("Serving static Expo files with dynamic manifest routing");
   app2.use((req, res, next) => {
     if (req.path.startsWith("/api")) {
