@@ -11,6 +11,7 @@ import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { queryClient } from "@/lib/query-client";
@@ -19,6 +20,7 @@ import { TrackingProvider } from "@/lib/tracking-context";
 import { useRouter, useSegments } from "expo-router";
 import OnboardingModal from "@/components/OnboardingModal";
 import TutorialModal from "@/components/TutorialModal";
+import WalkProgressBubble from "@/components/WalkProgressBubble";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const TUTORIAL_SEEN_KEY = "@streetcover_tutorial_seen";
@@ -147,15 +149,18 @@ export default function RootLayout() {
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <GestureHandlerRootView>
-          <KeyboardProvider>
-            <AuthProvider>
-              <TrackingProvider>
-                <RootLayoutNav />
-              </TrackingProvider>
-            </AuthProvider>
-          </KeyboardProvider>
-        </GestureHandlerRootView>
+        <SafeAreaProvider>
+          <GestureHandlerRootView>
+            <KeyboardProvider>
+              <AuthProvider>
+                <TrackingProvider>
+                  <RootLayoutNav />
+                  <WalkProgressBubble />
+                </TrackingProvider>
+              </AuthProvider>
+            </KeyboardProvider>
+          </GestureHandlerRootView>
+        </SafeAreaProvider>
       </QueryClientProvider>
     </ErrorBoundary>
   );
