@@ -240,7 +240,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/churches/:id/code", requireAuth, async (req: Request, res: Response) => {
     try {
-      const churchId = req.params.id;
+      const churchId = (req.params.id as string);
       const role = await storage.getMemberRole(req.session.userId!, churchId);
       if (role !== "admin") return res.status(403).json({ message: "Church admin access required" });
       const { code } = req.body;
@@ -277,7 +277,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/churches/:id/leave", requireAuth, async (req: Request, res: Response) => {
     try {
-      const churchId = req.params.id;
+      const churchId = (req.params.id as string);
       const isMember = await storage.isGroupMember(req.session.userId!, churchId);
       if (!isMember) return res.status(404).json({ message: "Not a member" });
       await storage.removeChurchMemberCascade(req.session.userId!, churchId);
@@ -290,7 +290,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/churches/:id/stats", requireAuth, async (req: Request, res: Response) => {
     try {
-      const churchId = req.params.id;
+      const churchId = (req.params.id as string);
       const isMember = await storage.isGroupMember(req.session.userId!, churchId);
       if (!isMember) return res.status(403).json({ message: "Not a member" });
       const from = req.query.from ? new Date(req.query.from as string) : undefined;
@@ -304,7 +304,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/churches/:id/members", requireAuth, async (req: Request, res: Response) => {
     try {
-      const churchId = req.params.id;
+      const churchId = (req.params.id as string);
       const role = await storage.getMemberRole(req.session.userId!, churchId);
       if (!role) return res.status(403).json({ message: "Not a member" });
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
@@ -317,7 +317,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/churches/:id/members/:userId/role", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { id: churchId, userId: targetUserId } = req.params;
+      const { id: churchId, userId: targetUserId } = req.params as Record<string, string>;
       const { role } = req.body;
       if (!role || !["admin", "participant"].includes(role)) return res.status(400).json({ message: "Invalid role" });
       const myRole = await storage.getMemberRole(req.session.userId!, churchId);
@@ -331,7 +331,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/churches/:id/members/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { id: churchId, userId: targetUserId } = req.params;
+      const { id: churchId, userId: targetUserId } = req.params as Record<string, string>;
       const myRole = await storage.getMemberRole(req.session.userId!, churchId);
       if (myRole !== "admin") return res.status(403).json({ message: "Admin access required" });
       if (targetUserId === req.session.userId) return res.status(400).json({ message: "Cannot remove yourself" });
@@ -347,7 +347,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/churches/:churchId/branches", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { churchId } = req.params;
+      const { churchId } = req.params as Record<string, string>;
       const isMember = await storage.isGroupMember(req.session.userId!, churchId);
       if (!isMember) return res.status(403).json({ message: "Not a church member" });
       const allBranches = await storage.getBranchesByChurch(churchId);
@@ -378,7 +378,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/churches/:churchId/branches", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { churchId } = req.params;
+      const { churchId } = req.params as Record<string, string>;
       const role = await storage.getMemberRole(req.session.userId!, churchId);
       if (!role) return res.status(403).json({ message: "Not a church member" });
       const { name } = req.body;
@@ -400,7 +400,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Branch creation requests (admin approval) ────────────────────────────
   app.get("/api/churches/:churchId/branch-creation-requests", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { churchId } = req.params;
+      const { churchId } = req.params as Record<string, string>;
       const role = await storage.getMemberRole(req.session.userId!, churchId);
       if (role !== "admin") return res.status(403).json({ message: "Church admin access required" });
       res.json(await storage.getPendingBranchesByChurch(churchId));
@@ -411,7 +411,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/churches/:churchId/branch-creation-requests/:branchId/approve", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { churchId, branchId } = req.params;
+      const { churchId, branchId } = req.params as Record<string, string>;
       const role = await storage.getMemberRole(req.session.userId!, churchId);
       if (role !== "admin") return res.status(403).json({ message: "Church admin access required" });
       const branch = await storage.getBranchById(branchId);
@@ -428,7 +428,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/churches/:churchId/branch-creation-requests/:branchId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { churchId, branchId } = req.params;
+      const { churchId, branchId } = req.params as Record<string, string>;
       const role = await storage.getMemberRole(req.session.userId!, churchId);
       if (role !== "admin") return res.status(403).json({ message: "Church admin access required" });
       const branch = await storage.getBranchById(branchId);
@@ -444,7 +444,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/churches/:churchId/branches/:branchId/join", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { churchId, branchId } = req.params;
+      const { churchId, branchId } = req.params as Record<string, string>;
       const isMember = await storage.isGroupMember(req.session.userId!, churchId);
       if (!isMember) return res.status(403).json({ message: "Not a church member" });
       const branch = await storage.getBranchById(branchId);
@@ -462,7 +462,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/branches/:branchId/leave", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId } = req.params;
+      const { branchId } = req.params as Record<string, string>;
       const isMember = await storage.isBranchMember(req.session.userId!, branchId);
       if (!isMember) return res.status(404).json({ message: "Not a branch member" });
       await storage.leaveBranch(req.session.userId!, branchId);
@@ -474,7 +474,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/branches/:branchId/my-request", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId } = req.params;
+      const { branchId } = req.params as Record<string, string>;
       const status = await storage.hasBranchRequest(req.session.userId!, branchId);
       if (status !== "pending") return res.status(404).json({ message: "No pending request" });
       await storage.leaveBranch(req.session.userId!, branchId);
@@ -486,11 +486,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/branches/:branchId/stats", requireAuth, async (req: Request, res: Response) => {
     try {
-      const role = await effectiveBranchRole(req.session.userId!, req.params.branchId);
+      const role = await effectiveBranchRole(req.session.userId!, (req.params.branchId as string));
       if (!role) return res.status(403).json({ message: "Not a branch member" });
       const from = req.query.from ? new Date(req.query.from as string) : undefined;
       const to = req.query.to ? new Date(req.query.to as string) : undefined;
-      res.json(await storage.getBranchStats(req.params.branchId, from, to));
+      res.json(await storage.getBranchStats((req.params.branchId as string), from, to));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -498,7 +498,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/branches/:branchId/requests", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId } = req.params;
+      const { branchId } = req.params as Record<string, string>;
       const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       res.json(await storage.getPendingBranchRequests(branchId));
@@ -509,7 +509,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/branches/:branchId/requests/:userId/approve", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId, userId: targetUserId } = req.params;
+      const { branchId, userId: targetUserId } = req.params as Record<string, string>;
       const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.approveBranchRequest(targetUserId, branchId);
@@ -521,7 +521,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/branches/:branchId/requests/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId, userId: targetUserId } = req.params;
+      const { branchId, userId: targetUserId } = req.params as Record<string, string>;
       const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.rejectBranchRequest(targetUserId, branchId);
@@ -533,10 +533,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/branches/:branchId/members", requireAuth, async (req: Request, res: Response) => {
     try {
-      const role = await effectiveBranchRole(req.session.userId!, req.params.branchId);
+      const role = await effectiveBranchRole(req.session.userId!, (req.params.branchId as string));
       if (!role) return res.status(403).json({ message: "Not a branch member" });
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
-      res.json(await storage.getBranchMembersWithStats(req.params.branchId));
+      res.json(await storage.getBranchMembersWithStats((req.params.branchId as string)));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -544,7 +544,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/branches/:branchId/members/:userId/role", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId, userId: targetUserId } = req.params;
+      const { branchId, userId: targetUserId } = req.params as Record<string, string>;
       const { role } = req.body;
       if (!role || !["admin", "participant"].includes(role)) return res.status(400).json({ message: "Invalid role" });
       const myRole = await effectiveBranchRole(req.session.userId!, branchId);
@@ -558,7 +558,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/branches/:branchId/members/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId, userId: targetUserId } = req.params;
+      const { branchId, userId: targetUserId } = req.params as Record<string, string>;
       const myRole = await effectiveBranchRole(req.session.userId!, branchId);
       if (myRole !== "admin") return res.status(403).json({ message: "Admin access required" });
       if (targetUserId === req.session.userId) return res.status(400).json({ message: "Cannot remove yourself" });
@@ -572,9 +572,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Branch priority areas
   app.get("/api/branches/:branchId/priority-areas", requireAuth, async (req: Request, res: Response) => {
     try {
-      const role = await effectiveBranchRole(req.session.userId!, req.params.branchId);
+      const role = await effectiveBranchRole(req.session.userId!, (req.params.branchId as string));
       if (!role) return res.status(403).json({ message: "Not a branch member" });
-      const areas = await storage.getBranchPriorityAreas(req.params.branchId);
+      const areas = await storage.getBranchPriorityAreas((req.params.branchId as string));
       res.json(areas.map((a) => ({ ...a, coordinates: JSON.parse(a.coordinates) })));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
@@ -583,7 +583,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/branches/:branchId/priority-areas", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId } = req.params;
+      const { branchId } = req.params as Record<string, string>;
       const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       const { name, coordinates, color } = req.body;
@@ -599,7 +599,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/branches/:branchId/priority-areas/:areaId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId, areaId } = req.params;
+      const { branchId, areaId } = req.params as Record<string, string>;
       const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.deletePriorityArea(areaId, undefined, branchId);
@@ -613,7 +613,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/branches/:branchId/teams", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId } = req.params;
+      const { branchId } = req.params as Record<string, string>;
       const branchRole = await effectiveBranchRole(req.session.userId!, branchId);
       if (!branchRole) return res.status(403).json({ message: "Not a branch member" });
       const allTeams = await storage.getTeamsByBranch(branchId);
@@ -643,7 +643,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/branches/:branchId/teams", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId } = req.params;
+      const { branchId } = req.params as Record<string, string>;
       const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (!role) return res.status(403).json({ message: "Not a branch member" });
       const { name } = req.body;
@@ -664,7 +664,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // ─── Team creation requests (admin approval) ──────────────────────────────
   app.get("/api/branches/:branchId/team-creation-requests", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId } = req.params;
+      const { branchId } = req.params as Record<string, string>;
       const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Branch admin access required" });
       res.json(await storage.getPendingTeamsByBranch(branchId));
@@ -675,7 +675,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/branches/:branchId/team-creation-requests/:teamId/approve", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId, teamId } = req.params;
+      const { branchId, teamId } = req.params as Record<string, string>;
       const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Branch admin access required" });
       const team = await storage.getTeamById(teamId);
@@ -692,7 +692,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/branches/:branchId/team-creation-requests/:teamId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId, teamId } = req.params;
+      const { branchId, teamId } = req.params as Record<string, string>;
       const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (role !== "admin") return res.status(403).json({ message: "Branch admin access required" });
       const team = await storage.getTeamById(teamId);
@@ -708,7 +708,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/branches/:branchId/teams/:teamId/join", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { branchId, teamId } = req.params;
+      const { branchId, teamId } = req.params as Record<string, string>;
       const role = await effectiveBranchRole(req.session.userId!, branchId);
       if (!role) return res.status(403).json({ message: "Not a branch member" });
       const team = await storage.getTeamById(teamId);
@@ -726,9 +726,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/teams/:teamId/leave", requireAuth, async (req: Request, res: Response) => {
     try {
-      const isMember = await storage.isTeamMember(req.session.userId!, req.params.teamId);
+      const isMember = await storage.isTeamMember(req.session.userId!, (req.params.teamId as string));
       if (!isMember) return res.status(404).json({ message: "Not a team member" });
-      await storage.leaveTeam(req.session.userId!, req.params.teamId);
+      await storage.leaveTeam(req.session.userId!, (req.params.teamId as string));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
@@ -737,7 +737,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/teams/:teamId/my-request", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { teamId } = req.params;
+      const { teamId } = req.params as Record<string, string>;
       const status = await storage.hasTeamRequest(req.session.userId!, teamId);
       if (status !== "pending") return res.status(404).json({ message: "No pending request" });
       await storage.leaveTeam(req.session.userId!, teamId);
@@ -749,11 +749,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/teams/:teamId/stats", requireAuth, async (req: Request, res: Response) => {
     try {
-      const role = await effectiveTeamRole(req.session.userId!, req.params.teamId);
+      const role = await effectiveTeamRole(req.session.userId!, (req.params.teamId as string));
       if (!role) return res.status(403).json({ message: "Not a team member" });
       const from = req.query.from ? new Date(req.query.from as string) : undefined;
       const to = req.query.to ? new Date(req.query.to as string) : undefined;
-      res.json(await storage.getTeamStats(req.params.teamId, from, to));
+      res.json(await storage.getTeamStats((req.params.teamId as string), from, to));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -761,7 +761,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/teams/:teamId/requests", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { teamId } = req.params;
+      const { teamId } = req.params as Record<string, string>;
       const role = await effectiveTeamRole(req.session.userId!, teamId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       res.json(await storage.getPendingTeamRequests(teamId));
@@ -772,7 +772,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/teams/:teamId/requests/:userId/approve", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { teamId, userId: targetUserId } = req.params;
+      const { teamId, userId: targetUserId } = req.params as Record<string, string>;
       const role = await effectiveTeamRole(req.session.userId!, teamId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.approveTeamRequest(targetUserId, teamId);
@@ -784,7 +784,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/teams/:teamId/requests/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { teamId, userId: targetUserId } = req.params;
+      const { teamId, userId: targetUserId } = req.params as Record<string, string>;
       const role = await effectiveTeamRole(req.session.userId!, teamId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.rejectTeamRequest(targetUserId, teamId);
@@ -796,10 +796,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/teams/:teamId/members", requireAuth, async (req: Request, res: Response) => {
     try {
-      const role = await effectiveTeamRole(req.session.userId!, req.params.teamId);
+      const role = await effectiveTeamRole(req.session.userId!, (req.params.teamId as string));
       if (!role) return res.status(403).json({ message: "Not a team member" });
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
-      res.json(await storage.getTeamMembersWithStats(req.params.teamId));
+      res.json(await storage.getTeamMembersWithStats((req.params.teamId as string)));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -807,7 +807,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/teams/:teamId/members/:userId/role", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { teamId, userId: targetUserId } = req.params;
+      const { teamId, userId: targetUserId } = req.params as Record<string, string>;
       const { role } = req.body;
       if (!role || !["admin", "participant"].includes(role)) return res.status(400).json({ message: "Invalid role" });
       const myRole = await effectiveTeamRole(req.session.userId!, teamId);
@@ -821,7 +821,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/teams/:teamId/members/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { teamId, userId: targetUserId } = req.params;
+      const { teamId, userId: targetUserId } = req.params as Record<string, string>;
       const myRole = await effectiveTeamRole(req.session.userId!, teamId);
       if (myRole !== "admin") return res.status(403).json({ message: "Admin access required" });
       if (targetUserId === req.session.userId) return res.status(400).json({ message: "Cannot remove yourself" });
@@ -834,9 +834,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/teams/:teamId/coverage", requireAuth, async (req: Request, res: Response) => {
     try {
-      const role = await effectiveTeamRole(req.session.userId!, req.params.teamId);
+      const role = await effectiveTeamRole(req.session.userId!, (req.params.teamId as string));
       if (!role) return res.status(403).json({ message: "Not a team member" });
-      const points = await storage.getTeamRoutePoints(req.params.teamId);
+      const points = await storage.getTeamRoutePoints((req.params.teamId as string));
       res.json(opaqueSessionIds(points));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
@@ -917,9 +917,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/groups/:id/leave", requireAuth, async (req: Request, res: Response) => {
     try {
-      const isMember = await storage.isGroupMember(req.session.userId!, req.params.id);
+      const isMember = await storage.isGroupMember(req.session.userId!, (req.params.id as string));
       if (!isMember) return res.status(404).json({ message: "Not a member" });
-      await storage.removeMember(req.session.userId!, req.params.id);
+      await storage.removeMember(req.session.userId!, (req.params.id as string));
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
@@ -928,7 +928,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/groups/:id/my-role", requireAuth, async (req: Request, res: Response) => {
     try {
-      const role = await storage.getMemberRole(req.session.userId!, req.params.id);
+      const role = await storage.getMemberRole(req.session.userId!, (req.params.id as string));
       if (!role) return res.status(403).json({ message: "Not a member" });
       res.json({ role });
     } catch (error) {
@@ -938,9 +938,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/groups/:id/stats", requireAuth, async (req: Request, res: Response) => {
     try {
-      const isMember = await storage.isGroupMember(req.session.userId!, req.params.id);
+      const isMember = await storage.isGroupMember(req.session.userId!, (req.params.id as string));
       if (!isMember) return res.status(403).json({ message: "Not a member" });
-      res.json(await storage.getGroupStats(req.params.id));
+      res.json(await storage.getGroupStats((req.params.id as string)));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -948,10 +948,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/groups/:id/members", requireAuth, async (req: Request, res: Response) => {
     try {
-      const role = await storage.getMemberRole(req.session.userId!, req.params.id);
+      const role = await storage.getMemberRole(req.session.userId!, (req.params.id as string));
       if (!role) return res.status(403).json({ message: "Not a member" });
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
-      res.json(await storage.getGroupMembersWithStats(req.params.id));
+      res.json(await storage.getGroupMembersWithStats((req.params.id as string)));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -959,7 +959,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.patch("/api/groups/:id/members/:userId/role", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { id: groupId, userId: targetUserId } = req.params;
+      const { id: groupId, userId: targetUserId } = req.params as Record<string, string>;
       const { role } = req.body;
       if (!role || !["admin", "participant"].includes(role)) return res.status(400).json({ message: "Invalid role" });
       const myRole = await storage.getMemberRole(req.session.userId!, groupId);
@@ -973,7 +973,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/groups/:id/members/:userId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { id: groupId, userId: targetUserId } = req.params;
+      const { id: groupId, userId: targetUserId } = req.params as Record<string, string>;
       const myRole = await storage.getMemberRole(req.session.userId!, groupId);
       if (myRole !== "admin") return res.status(403).json({ message: "Admin access required" });
       if (targetUserId === req.session.userId) return res.status(400).json({ message: "Cannot remove yourself" });
@@ -986,9 +986,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/groups/:id/coverage", requireAuth, async (req: Request, res: Response) => {
     try {
-      const isMember = await storage.isGroupMember(req.session.userId!, req.params.id);
+      const isMember = await storage.isGroupMember(req.session.userId!, (req.params.id as string));
       if (!isMember) return res.status(403).json({ message: "Not a member" });
-      res.json(opaqueSessionIds(await storage.getGroupRoutePoints(req.params.id)));
+      res.json(opaqueSessionIds(await storage.getGroupRoutePoints((req.params.id as string))));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
     }
@@ -996,9 +996,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/groups/:id/priority-areas", requireAuth, async (req: Request, res: Response) => {
     try {
-      const isMember = await storage.isGroupMember(req.session.userId!, req.params.id);
+      const isMember = await storage.isGroupMember(req.session.userId!, (req.params.id as string));
       if (!isMember) return res.status(403).json({ message: "Not a member" });
-      const areas = await storage.getPriorityAreas(req.params.id);
+      const areas = await storage.getPriorityAreas((req.params.id as string));
       res.json(areas.map((a) => ({ ...a, coordinates: JSON.parse(a.coordinates) })));
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
@@ -1007,7 +1007,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/groups/:id/priority-areas", requireAuth, async (req: Request, res: Response) => {
     try {
-      const groupId = req.params.id;
+      const groupId = (req.params.id as string);
       const role = await storage.getMemberRole(req.session.userId!, groupId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       const { name, coordinates, color } = req.body;
@@ -1023,7 +1023,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/groups/:id/priority-areas/:areaId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const { id: groupId, areaId } = req.params;
+      const { id: groupId, areaId } = req.params as Record<string, string>;
       const role = await storage.getMemberRole(req.session.userId!, groupId);
       if (role !== "admin") return res.status(403).json({ message: "Admin access required" });
       await storage.deletePriorityArea(areaId, groupId);
@@ -1081,10 +1081,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.put("/api/sessions/:id/end", requireAuth, async (req: Request, res: Response) => {
     try {
       const { totalDistance, totalDuration } = req.body;
-      const session = await storage.getSessionById(req.params.id);
+      const session = await storage.getSessionById((req.params.id as string));
       if (!session) return res.status(404).json({ message: "Session not found" });
       if (session.userId !== req.session.userId) return res.status(403).json({ message: "Not authorized" });
-      const ended = await storage.endSession(req.params.id, req.session.userId!, totalDistance || 0, totalDuration || 0);
+      const ended = await storage.endSession((req.params.id as string), req.session.userId!, totalDistance || 0, totalDuration || 0);
       if (!ended) return res.status(404).json({ message: "Session not found" });
       res.json(ended);
     } catch (error) {
@@ -1096,10 +1096,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const parsed = insertRoutePointsSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: "Invalid route points data" });
-      const session = await storage.getSessionById(req.params.id);
+      const session = await storage.getSessionById((req.params.id as string));
       if (!session) return res.status(404).json({ message: "Session not found" });
       if (session.userId !== req.session.userId) return res.status(403).json({ message: "Not authorized" });
-      const points = await storage.addRoutePoints(req.params.id, parsed.data.points);
+      const points = await storage.addRoutePoints((req.params.id as string), parsed.data.points);
       res.json(points);
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
@@ -1108,10 +1108,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/sessions/:id/points", requireAuth, async (req: Request, res: Response) => {
     try {
-      const session = await storage.getSessionById(req.params.id);
+      const session = await storage.getSessionById((req.params.id as string));
       if (!session) return res.status(404).json({ message: "Session not found" });
       if (session.userId !== req.session.userId) return res.status(403).json({ message: "Not authorized" });
-      const points = await storage.getSessionRoutePoints(req.params.id);
+      const points = await storage.getSessionRoutePoints((req.params.id as string));
       res.json(points);
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
@@ -1129,7 +1129,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/sessions/:id", requireAuth, async (req: Request, res: Response) => {
     try {
-      const deleted = await storage.deleteSession(req.params.id, req.session.userId!);
+      const deleted = await storage.deleteSession((req.params.id as string), req.session.userId!);
       if (!deleted) return res.status(404).json({ message: "Session not found or not yours" });
       res.json({ message: "Session deleted" });
     } catch (error) {
@@ -1150,10 +1150,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/sessions/:id/notes", requireAuth, async (req: Request, res: Response) => {
     try {
-      const session = await storage.getSessionById(req.params.id);
+      const session = await storage.getSessionById((req.params.id as string));
       if (!session) return res.status(404).json({ message: "Session not found" });
       if (session.userId !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
-      const notes = await storage.getSessionNotes(req.params.id);
+      const notes = await storage.getSessionNotes((req.params.id as string));
       res.json(notes);
     } catch (error) {
       res.status(500).json({ message: "Internal server error" });
@@ -1162,13 +1162,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/sessions/:id/notes", requireAuth, async (req: Request, res: Response) => {
     try {
-      const session = await storage.getSessionById(req.params.id);
+      const session = await storage.getSessionById((req.params.id as string));
       if (!session) return res.status(404).json({ message: "Session not found" });
       if (session.userId !== req.session.userId) return res.status(403).json({ message: "Forbidden" });
       const { text, latitude, longitude } = req.body;
       if (!text || typeof text !== "string" || !text.trim()) return res.status(400).json({ message: "Note text required" });
       const note = await storage.createSessionNote(
-        req.params.id,
+        (req.params.id as string),
         req.session.userId!,
         text.trim(),
         typeof latitude === "number" ? latitude : null,
@@ -1182,7 +1182,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/sessions/:sessionId/notes/:noteId", requireAuth, async (req: Request, res: Response) => {
     try {
-      const deleted = await storage.deleteSessionNote(req.params.noteId, req.session.userId!);
+      const deleted = await storage.deleteSessionNote((req.params.noteId as string), req.session.userId!);
       if (!deleted) return res.status(404).json({ message: "Note not found or not yours" });
       res.json({ success: true });
     } catch (error) {

@@ -1,6 +1,7 @@
 - [npm overrides & Expo vulns](npm-overrides-and-expo-vulns.md) — fix transitive vulns via incremental overrides; never clean-reinstall (drifts tree, breaks patches); remaining moderates need expo@56.
 - [Migration concurrency on boot](migration-concurrency.md) — runMigrations runs on every boot; keep session-level pg_advisory_lock outside the txn + retry so concurrent boots don't deadlock.
 - [GPS spike rejection](gps-spike-rejection.md) — app records raw GPS (no road-snapping); reject outliers by IMPLIED SPEED (120 km/h cap), not distance; never advance the anchor on a rejected fix.
+- [tsc checking gotchas](typescript-checking.md) — tsc isn't run by metro/tsx so errors are latent; Express 5 params are string|string[] (cast at source); platform .native/.web files need tsconfig moduleSuffixes or TS2307.
 - [GPS heading & bg merge](gps-heading-and-merge.md) — heading must be travel-bearing not compass (else map spins wrong way); bg-point merge must full-sort, never append-only (append drops locked-screen block).
 - [Running tests](running-tests.md) — no jest/test script (can't edit package.json); run via `node --import tsx --test`; keep pure logic dep-free; backend tests boot real Express in-process. Detail in topic file.
 - [Lockfile Replit registry URLs](lockfile-replit-registry.md) — after any npm install inside Replit, package-lock.json gets resolved URLs pointing to package-firewall.replit.local; Expo Launch builds fail with ENOTFOUND. Fix: sed replace all occurrences with https://registry.npmjs.org/.

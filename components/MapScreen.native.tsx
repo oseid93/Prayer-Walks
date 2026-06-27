@@ -1392,4 +1392,24 @@ const styles = StyleSheet.create({
   dateDropdownItemTextActive: {
     color: "#33C3F0",
   },
+  dateFilterPill: {
+    backgroundColor: "rgba(15, 15, 35, 0.9)",
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: "#2D2D44",
+  },
+  dateFilterPillActive: {
+    backgroundColor: "rgba(51, 195, 240, 0.12)",
+    borderColor: "#33C3F0",
+  },
+  dateFilterText: {
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+    color: "#9CA3AF",
+  },
+  dateFilterTextActive: {
+    color: "#33C3F0",
+  },
 });
