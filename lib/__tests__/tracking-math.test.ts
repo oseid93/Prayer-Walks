@@ -81,7 +81,12 @@ describe("Feature: heading reflects direction of travel (the wrong-direction fix
 describe("Feature: standing still must not move the route or spin the map", () => {
   it("Given the very first fix (no previous), Then nothing is added", () => {
     const step = foregroundStep(null, { latitude: 40, longitude: -73 });
-    assert.deepEqual(step, { distanceDelta: 0, heading: null, moved: false });
+    assert.deepEqual(step, {
+      distanceDelta: 0,
+      heading: null,
+      moved: false,
+      rejected: false,
+    });
   });
 
   it("Given GPS jitter below the ~2m gate, Then distance and heading are unchanged", () => {
@@ -182,14 +187,20 @@ describe("Feature: merging locked-screen (background) points into the live route
     assert.ok(res.heading !== null && (res.heading < 1 || res.heading > 359));
   });
 
-  it("Documents behaviour: duplicate timestamps WITHIN one incoming batch are both kept (dedupe is only vs the existing route)", () => {
+  it("Given two incoming points sharing a timestamp at different coords, Then the contradictory second one is dropped as an impossible (zero-time) jump", () => {
     const prev = [pt(40.0, -73.0, 0)];
-    // Two distinct incoming points that share a timestamp (t=10).
+    // Two distinct incoming points that share a timestamp (t=10). Being in two
+    // places at the same instant is physically impossible (infinite implied
+    // speed), so the spike guard keeps only the first.
     const a = pt(40.001, -73.0, 10);
     const b = { ...pt(40.002, -73.0, 10) }; // same ts as `a`, different coords
     const res = mergeTrackPoints(prev, [a, b]);
-    assert.equal(res.added.length, 2);
-    assert.equal(res.merged.length, 3);
+    assert.equal(res.added.length, 1);
+    assert.equal(res.merged.length, 2);
+    assert.ok(
+      !res.merged.some((p) => p.latitude === b.latitude),
+      "the contradictory same-timestamp point must be dropped",
+    );
   });
 });
 

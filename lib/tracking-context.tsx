@@ -13,8 +13,6 @@ import {
 } from "@/lib/location-task";
 import { logTracking } from "@/lib/tracking-log";
 import {
-  haversineDistance,
-  calculateBearing,
   mergeTrackPoints,
   foregroundStep,
   elapsedSeconds,
@@ -78,6 +76,9 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
   const startTimeRef = useRef<number>(0);
   const sessionStartedAtRef = useRef<Date>(new Date());
   const prevLocationRef = useRef<{ latitude: number; longitude: number } | null>(null);
+  // Timestamp (ms) of the last *accepted* fix, used to derive the time delta for
+  // speed-based GPS-spike rejection in the foreground/web watches.
+  const lastFixMsRef = useRef<number | null>(null);
   const isTrackingActiveRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
   const distanceRef = useRef<number>(0);
@@ -409,33 +410,38 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
               });
               return;
             }
+            const nowMs = Date.now();
             const point: TrackingPoint = {
               latitude: pos.coords.latitude,
               longitude: pos.coords.longitude,
-              timestamp: new Date().toISOString(),
+              timestamp: new Date(nowMs).toISOString(),
               accuracy: pos.coords.accuracy,
             };
-            setCurrentPoints((prev) => {
-              if (prev.length > 0) {
-                const last = prev[prev.length - 1];
-                const d = haversineDistance(
-                  last.latitude,
-                  last.longitude,
-                  point.latitude,
-                  point.longitude,
-                );
-                setDistance((prevDist) => prevDist + d);
-                setHeading(
-                  calculateBearing(
-                    last.latitude,
-                    last.longitude,
-                    point.latitude,
-                    point.longitude,
-                  ),
-                );
+            const dtSeconds =
+              lastFixMsRef.current !== null
+                ? (nowMs - lastFixMsRef.current) / 1000
+                : undefined;
+            const step = foregroundStep(
+              prevLocationRef.current,
+              point,
+              dtSeconds,
+            );
+            if (step.rejected) {
+              // GPS spike: discard so it can't derail the route or inflate distance.
+              return;
+            }
+            if (step.moved) {
+              setDistance((prevDist) => prevDist + step.distanceDelta);
+              if (step.heading !== null) {
+                setHeading(step.heading);
               }
-              return [...prev, point];
-            });
+            }
+            prevLocationRef.current = {
+              latitude: point.latitude,
+              longitude: point.longitude,
+            };
+            lastFixMsRef.current = nowMs;
+            setCurrentPoints((prev) => [...prev, point]);
             setCurrentLocation({
               latitude: point.latitude,
               longitude: point.longitude,
@@ -460,12 +466,14 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
         distanceInterval: 3,
       },
       (loc) => {
-        setCurrentLocation({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-        });
-
-        if (!isTrackingActiveRef.current) return;
+        // When not tracking, the live marker simply follows GPS.
+        if (!isTrackingActiveRef.current) {
+          setCurrentLocation({
+            latitude: loc.coords.latitude,
+            longitude: loc.coords.longitude,
+          });
+          return;
+        }
 
         // Skip inaccurate foreground fixes (e.g. cell-tower lock > 50 m)
         if (loc.coords.accuracy !== null && loc.coords.accuracy > 50) return;
@@ -477,7 +485,17 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           accuracy: loc.coords.accuracy,
         };
 
-        const step = foregroundStep(prevLocationRef.current, point);
+        const dtSeconds =
+          lastFixMsRef.current !== null
+            ? (loc.timestamp - lastFixMsRef.current) / 1000
+            : undefined;
+        const step = foregroundStep(prevLocationRef.current, point, dtSeconds);
+        if (step.rejected) {
+          // Implausibly fast jump => GPS spike. Discard it entirely (including
+          // the live marker, so the map doesn't jump) and keep the last good
+          // location/time so the next fix is judged against the real position.
+          return;
+        }
         if (step.moved) {
           setDistance((prevDist) => prevDist + step.distanceDelta);
           if (step.heading !== null) {
@@ -488,7 +506,13 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
           latitude: point.latitude,
           longitude: point.longitude,
         };
+        lastFixMsRef.current = loc.timestamp;
 
+        // Only move the live marker to accepted fixes (parity with the web path).
+        setCurrentLocation({
+          latitude: point.latitude,
+          longitude: point.longitude,
+        });
         setCurrentPoints((prevPts) => [...prevPts, point]);
         pointsBufferRef.current.push(point);
       },
@@ -646,6 +670,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       setDistance(0);
       setElapsedTime(0);
       prevLocationRef.current = null;
+      lastFixMsRef.current = null;
       pointsBufferRef.current = [];
       distanceRef.current = 0;
 
@@ -799,6 +824,7 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
     distanceRef.current = 0;
     setHeading(null);
     prevLocationRef.current = null;
+    lastFixMsRef.current = null;
     pointsBufferRef.current = [];
 
     setCompletedSession(summary);

@@ -23,6 +23,7 @@ A mobile street coverage tracking app built with Expo (React Native) and Express
 - `lib/tracking-context.tsx` - GPS tracking, timer, distance calculation
 - `lib/auth-context.tsx` - Authentication state
 - `lib/coverage-utils.ts` - Heat map segment building, formatting helpers
+- `lib/tracking-math.ts` - Pure GPS math: distance/bearing, movement gate, speed-based GPS-spike rejection (anti-derailment), background-point merge, session finalize
 - `server/routes.ts` - All API endpoints
 - `server/storage.ts` - Database storage layer
 - `shared/schema.ts` - Drizzle schema definitions

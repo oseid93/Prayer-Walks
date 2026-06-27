@@ -16,6 +16,14 @@ export interface GeoPoint {
 // doesn't accumulate distance or spin the heading.
 export const MOVEMENT_GATE_KM = 0.002;
 
+// Upper movement gate: the fastest a fix can plausibly move from the previous
+// one before it is treated as a GPS spike (a "teleport" that would derail the
+// route and inflate distance). 120 km/h is far above any walking/running pace
+// yet well below typical spike speeds (a glitch jumps hundreds of metres in
+// ~1 s, i.e. hundreds of km/h). A genuinely distant fix reached over a long
+// time gap (tunnel, reacquisition) has a LOW implied speed and is kept.
+export const MAX_PLAUSIBLE_SPEED_KMH = 120;
+
 // Great-circle distance between two coordinates, in kilometres.
 export function haversineDistance(
   lat1: number,
@@ -34,6 +42,34 @@ export function haversineDistance(
       Math.sin(dLon / 2);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
   return R * c;
+}
+
+// Implied speed (km/h) to cover `distanceKm` in `dtSeconds`. Zero distance is
+// always 0 (no movement, never a spike); a non-zero move with no elapsed time
+// is treated as infinitely fast (implausible) so it can be rejected.
+export function impliedSpeedKmh(distanceKm: number, dtSeconds: number): number {
+  if (distanceKm <= 0) return 0;
+  if (dtSeconds <= 0) return Infinity;
+  return distanceKm / (dtSeconds / 3600);
+}
+
+// Whether `point` is an implausible GPS spike relative to `prev`, judged by the
+// speed required to get there in `dtSeconds`. With no previous fix the point is
+// never a spike (nothing to compare against).
+export function isGpsSpike(
+  prev: { latitude: number; longitude: number } | null,
+  point: { latitude: number; longitude: number },
+  dtSeconds: number,
+  maxSpeedKmh: number = MAX_PLAUSIBLE_SPEED_KMH,
+): boolean {
+  if (!prev) return false;
+  const d = haversineDistance(
+    prev.latitude,
+    prev.longitude,
+    point.latitude,
+    point.longitude,
+  );
+  return impliedSpeedKmh(d, dtSeconds) > maxSpeedKmh;
 }
 
 // Initial bearing (direction of travel) from point 1 to point 2, in degrees
@@ -62,21 +98,34 @@ export interface ForegroundStep {
   heading: number | null;
   // Whether the point cleared the movement gate.
   moved: boolean;
+  // Whether the point was discarded as an implausible GPS spike. When true the
+  // caller must NOT advance its "previous location" to this point, so the next
+  // fix is compared against the last *good* location rather than the spike.
+  rejected: boolean;
 }
 
 // Decide how a single foreground GPS fix updates distance and heading, applying
 // the movement gate. `prev` is the last *gated* location (null on the first fix).
+//
+// When `dtSeconds` (seconds since the previous gated fix) is supplied, the point
+// is first checked against the upper speed gate: an implausibly fast jump is
+// rejected as a GPS spike so it can't derail the route or inflate distance.
 export function foregroundStep(
   prev: { latitude: number; longitude: number } | null,
   point: { latitude: number; longitude: number },
+  dtSeconds?: number,
+  maxSpeedKmh: number = MAX_PLAUSIBLE_SPEED_KMH,
 ): ForegroundStep {
-  if (!prev) return { distanceDelta: 0, heading: null, moved: false };
+  if (!prev) return { distanceDelta: 0, heading: null, moved: false, rejected: false };
   const d = haversineDistance(
     prev.latitude,
     prev.longitude,
     point.latitude,
     point.longitude,
   );
+  if (dtSeconds !== undefined && impliedSpeedKmh(d, dtSeconds) > maxSpeedKmh) {
+    return { distanceDelta: 0, heading: null, moved: false, rejected: true };
+  }
   if (d > MOVEMENT_GATE_KM) {
     return {
       distanceDelta: d,
@@ -87,9 +136,10 @@ export function foregroundStep(
         point.longitude,
       ),
       moved: true,
+      rejected: false,
     };
   }
-  return { distanceDelta: 0, heading: null, moved: false };
+  return { distanceDelta: 0, heading: null, moved: false, rejected: false };
 }
 
 export interface MergeResult<T extends GeoPoint> {
@@ -124,22 +174,39 @@ export function mergeTrackPoints<T extends GeoPoint>(
     return { merged: prev, extraDistance: 0, heading: null, added: [] };
   }
 
-  const merged = [...prev, ...added].sort(
+  const prevTs = new Set(prev.map((p) => p.timestamp));
+  const combined = [...prev, ...added].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
 
+  // Walk the chronological sequence keeping the last *trusted* point. Existing
+  // (already-persisted) points are always kept; a newly-incoming point is
+  // dropped as a GPS spike if the speed from the last kept point is implausible,
+  // so a single bad background fix can't derail the route or inflate distance.
+  const merged: T[] = [];
+  const keptAdded: T[] = [];
   let extraDistance = 0;
-  for (const pt of added) {
-    const idx = merged.findIndex((p) => p.timestamp === pt.timestamp);
-    if (idx > 0) {
-      const before = merged[idx - 1];
+  let lastKept: T | null = null;
+  for (const pt of combined) {
+    const isExisting = prevTs.has(pt.timestamp);
+    if (lastKept && !isExisting) {
+      const dt =
+        (new Date(pt.timestamp).getTime() -
+          new Date(lastKept.timestamp).getTime()) /
+        1000;
+      if (isGpsSpike(lastKept, pt, dt)) {
+        continue;
+      }
       extraDistance += haversineDistance(
-        before.latitude,
-        before.longitude,
+        lastKept.latitude,
+        lastKept.longitude,
         pt.latitude,
         pt.longitude,
       );
     }
+    merged.push(pt);
+    if (!isExisting) keptAdded.push(pt);
+    lastKept = pt;
   }
 
   let heading: number | null = null;
@@ -154,7 +221,7 @@ export function mergeTrackPoints<T extends GeoPoint>(
     );
   }
 
-  return { merged, extraDistance, heading, added };
+  return { merged, extraDistance, heading, added: keptAdded };
 }
 
 // Seconds elapsed since a walk's start, used to drive the live session timer.
@@ -190,14 +257,27 @@ export function finalizeFromPoints(points: TimedPoint[]): FinalizedSession {
   const sorted = [...points].sort(
     (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime(),
   );
+  // Sum hops from the last *trusted* point, skipping any hop whose implied speed
+  // is impossible (a GPS spike that slipped into the persisted points) so
+  // recovered distance isn't inflated by a teleport.
   let distance = 0;
+  let lastKept: TimedPoint | null = sorted.length > 0 ? sorted[0] : null;
   for (let i = 1; i < sorted.length; i++) {
+    const cur = sorted[i];
+    const dt =
+      (new Date(cur.timestamp).getTime() -
+        new Date(lastKept!.timestamp).getTime()) /
+      1000;
+    if (isGpsSpike(lastKept, cur, dt)) {
+      continue;
+    }
     distance += haversineDistance(
-      sorted[i - 1].latitude,
-      sorted[i - 1].longitude,
-      sorted[i].latitude,
-      sorted[i].longitude,
+      lastKept!.latitude,
+      lastKept!.longitude,
+      cur.latitude,
+      cur.longitude,
     );
+    lastKept = cur;
   }
   let duration = 0;
   if (sorted.length >= 2) {
