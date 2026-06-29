@@ -669,6 +669,9 @@ export function TrackingProvider({ children }: { children: React.ReactNode }) {
       setCurrentPoints([]);
       setDistance(0);
       setElapsedTime(0);
+      // Dismiss any leftover summary from the previous walk so a fresh session
+      // never shows the last session's completion card.
+      setCompletedSession(null);
       prevLocationRef.current = null;
       lastFixMsRef.current = null;
       pointsBufferRef.current = [];

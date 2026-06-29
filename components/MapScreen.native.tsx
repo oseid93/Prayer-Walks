@@ -472,17 +472,20 @@ export default function NativeMapScreen() {
             </Marker>
           ))}
 
-        {/* Coverage heat map polylines */}
-        {coveragePolylines.map((poly, i) => (
-          <Polyline
-            key={`cov-${i}`}
-            coordinates={poly.coordinates}
-            strokeColor={poly.color}
-            strokeWidth={poly.width}
-            lineCap="round"
-            lineJoin="round"
-          />
-        ))}
+        {/* Coverage heat map polylines — hidden while a walk is in progress so
+            the current session starts on a clean map. Past routes remain in the
+            History tab and reappear here once the walk ends. */}
+        {state !== "tracking" &&
+          coveragePolylines.map((poly, i) => (
+            <Polyline
+              key={`cov-${i}`}
+              coordinates={poly.coordinates}
+              strokeColor={poly.color}
+              strokeWidth={poly.width}
+              lineCap="round"
+              lineJoin="round"
+            />
+          ))}
 
         {/* Active session track */}
         {currentTrackPoints.length >= 2 && (
