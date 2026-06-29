@@ -5,3 +5,4 @@
 - [GPS heading & bg merge](gps-heading-and-merge.md) — heading must be travel-bearing not compass (else map spins wrong way); bg-point merge must full-sort, never append-only (append drops locked-screen block).
 - [Running tests](running-tests.md) — no jest/test script (can't edit package.json); run via `node --import tsx --test`; keep pure logic dep-free; backend tests boot real Express in-process. Detail in topic file.
 - [Lockfile Replit registry URLs](lockfile-replit-registry.md) — after any npm install inside Replit, package-lock.json gets resolved URLs pointing to package-firewall.replit.local; Expo Launch builds fail with ENOTFOUND. Fix: sed replace all occurrences with https://registry.npmjs.org/.
+- [Clean live-session map](clean-live-map.md) — main map shows only the active walk by user choice; never re-add coverage/heat-map/group overlay to it (past routes live in History → SessionDetail).

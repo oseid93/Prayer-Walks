@@ -21,20 +21,12 @@ import { useAuth } from "@/lib/auth-context";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient, getApiUrl } from "@/lib/query-client";
 import {
-  buildCoveragePolylines,
   formatDuration,
   formatDistance,
 } from "@/lib/coverage-utils";
 import { useFocusEffect } from "expo-router";
 import { subscribeMapFocus, consumeMapFocusZone } from "@/lib/map-focus";
 import TutorialModal from "@/components/TutorialModal";
-
-interface RoutePointData {
-  latitude: number;
-  longitude: number;
-  sessionId?: string;
-  timestamp?: string;
-}
 
 interface PriorityArea {
   id: string;
@@ -79,8 +71,6 @@ export default function NativeMapScreen() {
   } = useTracking();
   const { user } = useAuth();
   const mapRef = useRef<MapView>(null);
-  const [viewMode, setViewMode] = useState<"personal" | "group">("personal");
-  const [selectedTeamId, setSelectedTeamId] = useState<string | null>(null);
   const [initialLocationSet, setInitialLocationSet] = useState(false);
   const isFollowingRef = useRef(false);
   const lastCameraUpdateRef = useRef(0);
@@ -99,10 +89,6 @@ export default function NativeMapScreen() {
 
   // Permission banner state
   const [permStatus, setPermStatus] = useState<string>("granted");
-
-  // Date range filter
-  const [dateFilter, setDateFilter] = useState<"week" | "month" | "all">("all");
-  const [showDateDropdown, setShowDateDropdown] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -144,26 +130,10 @@ export default function NativeMapScreen() {
     };
   }, []);
 
-  const { data: coveragePoints } = useQuery<RoutePointData[]>({
-    queryKey: ["/api/coverage"],
-    enabled: !!user,
-  });
-
-  type MyTeam = { id: string; name: string; role: string; branchName: string; churchId: string; branchId: string };
-  const { data: myTeams } = useQuery<MyTeam[]>({
-    queryKey: ["/api/my-teams"],
-    enabled: !!user,
-  });
-
   type MyAdminBranch = { id: string; name: string; role: string; churchId: string };
   const { data: adminBranches } = useQuery<MyAdminBranch[]>({
     queryKey: ["/api/my-admin-branches"],
     enabled: !!user,
-  });
-
-  const { data: groupCoverage } = useQuery<RoutePointData[]>({
-    queryKey: ["/api/teams", selectedTeamId, "coverage"],
-    enabled: !!selectedTeamId && viewMode === "group",
   });
 
   const { data: priorityAreas } = useQuery<PriorityArea[]>({
@@ -189,17 +159,6 @@ export default function NativeMapScreen() {
     return () => { cancelled = true; };
   }, []);
 
-
-  // Apply date filter to coverage points
-  const filteredCoveragePoints = React.useMemo(() => {
-    const rawData = viewMode === "group" && groupCoverage ? groupCoverage : coveragePoints || [];
-    if (dateFilter === "all") return rawData;
-    const now = Date.now();
-    const cutoff = dateFilter === "week" ? now - 7 * 24 * 60 * 60 * 1000 : now - 30 * 24 * 60 * 60 * 1000;
-    return rawData.filter((p: RoutePointData) => p.timestamp && new Date(p.timestamp).getTime() >= cutoff);
-  }, [coveragePoints, groupCoverage, viewMode, dateFilter]);
-
-  const coveragePolylines = buildCoveragePolylines(filteredCoveragePoints);
 
   useEffect(() => {
     if (currentLocation && mapRef.current && !initialLocationSet) {
@@ -472,22 +431,8 @@ export default function NativeMapScreen() {
             </Marker>
           ))}
 
-        {/* Coverage heat map polylines — hidden while a walk is in progress so
-            the current session starts on a clean map. Past routes remain in the
-            History tab and reappear here once the walk ends. */}
-        {state !== "tracking" &&
-          coveragePolylines.map((poly, i) => (
-            <Polyline
-              key={`cov-${i}`}
-              coordinates={poly.coordinates}
-              strokeColor={poly.color}
-              strokeWidth={poly.width}
-              lineCap="round"
-              lineJoin="round"
-            />
-          ))}
-
-        {/* Active session track */}
+        {/* Active session track — the main map only ever shows the current
+            walk. Past routes live in the History tab (tap a walk to view it). */}
         {currentTrackPoints.length >= 2 && (
           <Polyline
             coordinates={currentTrackPoints}
@@ -499,8 +444,8 @@ export default function NativeMapScreen() {
         )}
       </MapView>
 
-      {/* Top bar - mode toggle or draw banner */}
-      {drawMode ? (
+      {/* Draw mode banner */}
+      {drawMode && (
         <View style={[styles.drawBanner, { top: insets.top + 8 }]}>
           <Feather name="edit-2" size={14} color={areaColor} />
           <Text style={styles.drawBannerText}>
@@ -518,128 +463,13 @@ export default function NativeMapScreen() {
             </Pressable>
           )}
         </View>
-      ) : (
-        <View style={[styles.topBar, { top: insets.top + 8 }]}>
-          <View style={styles.modeToggle}>
-            <Pressable
-              onPress={() => setViewMode("personal")}
-              style={[
-                styles.modeButton,
-                viewMode === "personal" && styles.modeButtonActive,
-              ]}
-            >
-              <Feather
-                name="user"
-                size={16}
-                color={viewMode === "personal" ? "#fff" : "#9CA3AF"}
-              />
-              <Text
-                style={[
-                  styles.modeText,
-                  viewMode === "personal" && styles.modeTextActive,
-                ]}
-              >
-                Me
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                setViewMode("group");
-                if (myTeams && myTeams.length > 0 && !selectedTeamId) {
-                  setSelectedTeamId(myTeams[0].id);
-                }
-              }}
-              style={[
-                styles.modeButton,
-                viewMode === "group" && styles.modeButtonActive,
-              ]}
-            >
-              <Feather
-                name="users"
-                size={16}
-                color={viewMode === "group" ? "#fff" : "#9CA3AF"}
-              />
-              <Text
-                style={[
-                  styles.modeText,
-                  viewMode === "group" && styles.modeTextActive,
-                ]}
-              >
-                Group
-              </Text>
-            </Pressable>
-          </View>
-
-          {state === "idle" && (
-            <View style={styles.dateDropdownWrapper}>
-              <Pressable
-                onPress={() => setShowDateDropdown((v) => !v)}
-                style={styles.dateDropdownButton}
-              >
-                <Text style={styles.dateDropdownLabel}>
-                  {dateFilter === "week" ? "This Week" : dateFilter === "month" ? "This Month" : "All Time"}
-                </Text>
-                <Feather
-                  name={showDateDropdown ? "chevron-up" : "chevron-down"}
-                  size={12}
-                  color="#9CA3AF"
-                />
-              </Pressable>
-              {showDateDropdown && (
-                <View style={styles.dateDropdownMenu}>
-                  {(["week", "month", "all"] as const).map((f, i) => (
-                    <Pressable
-                      key={f}
-                      onPress={() => { setDateFilter(f); setShowDateDropdown(false); }}
-                      style={[
-                        styles.dateDropdownItem,
-                        dateFilter === f && styles.dateDropdownItemActive,
-                        i < 2 && styles.dateDropdownItemBorder,
-                      ]}
-                    >
-                      <Text style={[styles.dateDropdownItemText, dateFilter === f && styles.dateDropdownItemTextActive]}>
-                        {f === "week" ? "This Week" : f === "month" ? "This Month" : "All Time"}
-                      </Text>
-                      {dateFilter === f && <Feather name="check" size={12} color="#33C3F0" />}
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
-          )}
-        </View>
       )}
 
-      {/* Team selector — shown when in group mode with multiple teams */}
-      {viewMode === "group" && state === "idle" && !drawMode && (myTeams?.length ?? 0) > 1 && (
-        <View style={[styles.teamSelectorRow, { top: insets.top + 60 }]}>
-          {myTeams?.map((t) => (
-            <Pressable
-              key={t.id}
-              onPress={() => setSelectedTeamId(t.id)}
-              style={[styles.dateFilterPill, selectedTeamId === t.id && styles.dateFilterPillActive]}
-            >
-              <Text style={[styles.dateFilterText, selectedTeamId === t.id && styles.dateFilterTextActive]} numberOfLines={1}>
-                {t.name}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-      )}
-
-      {/* Dropdown dismiss backdrop */}
-      {showDateDropdown && (
-        <Pressable
-          style={[StyleSheet.absoluteFillObject, { zIndex: 8 }]}
-          onPress={() => setShowDateDropdown(false)}
-        />
-      )}
-
-      {/* Location permission banner — rendered below the filter pills so it never pushes them down */}
+      {/* Location permission banner */}
       {permStatus !== "granted" && state === "idle" && !drawMode && (
         <Pressable
           onPress={() => Linking.openSettings()}
-          style={[styles.permBanner, { top: insets.top + 100 }]}
+          style={[styles.permBanner, { top: insets.top + 8 }]}
         >
           <Feather name="alert-triangle" size={14} color="#FFCC00" />
           <Text style={styles.permBannerText}>Enable "Always" location in Settings for better tracking</Text>
@@ -943,40 +773,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#0F0F23",
-  },
-  topBar: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    zIndex: 10,
-  },
-  modeToggle: {
-    flexDirection: "row",
-    backgroundColor: "rgba(15, 15, 35, 0.9)",
-    borderRadius: 12,
-    padding: 4,
-  },
-  modeButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
-    gap: 6,
-  },
-  modeButtonActive: {
-    backgroundColor: "#33C3F0",
-  },
-  modeText: {
-    fontSize: 13,
-    color: "#9CA3AF",
-    fontFamily: "Inter_500Medium",
-  },
-  modeTextActive: {
-    color: "#FFFFFF",
   },
   drawBanner: {
     position: "absolute",
@@ -1312,15 +1108,6 @@ const styles = StyleSheet.create({
     color: "#6B7280",
     fontFamily: "Inter_400Regular",
   },
-  teamSelectorRow: {
-    position: "absolute",
-    left: 16,
-    right: 16,
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 6,
-    justifyContent: "center",
-  },
   permBanner: {
     position: "absolute",
     left: 16,
@@ -1340,79 +1127,5 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_400Regular",
     color: "#FFCC00",
-  },
-  dateDropdownWrapper: {
-    position: "relative",
-    zIndex: 100,
-  },
-  dateDropdownButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(15, 15, 35, 0.9)",
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderWidth: 1,
-    borderColor: "#2D2D44",
-  },
-  dateDropdownLabel: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-    color: "#9CA3AF",
-  },
-  dateDropdownMenu: {
-    position: "absolute",
-    top: 44,
-    right: 0,
-    backgroundColor: "rgba(15, 15, 35, 0.97)",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#2D2D44",
-    minWidth: 120,
-    overflow: "hidden",
-    zIndex: 200,
-  },
-  dateDropdownItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-  dateDropdownItemBorder: {
-    borderBottomWidth: 1,
-    borderBottomColor: "#2D2D44",
-  },
-  dateDropdownItemActive: {
-    backgroundColor: "rgba(51, 195, 240, 0.12)",
-  },
-  dateDropdownItemText: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-    color: "#9CA3AF",
-  },
-  dateDropdownItemTextActive: {
-    color: "#33C3F0",
-  },
-  dateFilterPill: {
-    backgroundColor: "rgba(15, 15, 35, 0.9)",
-    borderRadius: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderWidth: 1,
-    borderColor: "#2D2D44",
-  },
-  dateFilterPillActive: {
-    backgroundColor: "rgba(51, 195, 240, 0.12)",
-    borderColor: "#33C3F0",
-  },
-  dateFilterText: {
-    fontSize: 13,
-    fontFamily: "Inter_500Medium",
-    color: "#9CA3AF",
-  },
-  dateFilterTextActive: {
-    color: "#33C3F0",
   },
 });
