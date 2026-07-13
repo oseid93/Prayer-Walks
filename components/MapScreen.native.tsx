@@ -23,10 +23,25 @@ import { apiRequest, queryClient, getApiUrl } from "@/lib/query-client";
 import {
   formatDuration,
   formatDistance,
+  buildCoveragePolylines,
 } from "@/lib/coverage-utils";
+
 import { useFocusEffect } from "expo-router";
 import { subscribeMapFocus, consumeMapFocusZone } from "@/lib/map-focus";
 import TutorialModal from "@/components/TutorialModal";
+
+interface RoutePointData {
+  latitude: number;
+  longitude: number;
+  sessionId?: string;
+  timestamp?: string;
+}
+
+interface Group {
+  id: string;
+  name: string;
+  role: string;
+}
 
 interface PriorityArea {
   id: string;
@@ -74,6 +89,10 @@ export default function NativeMapScreen() {
   const [initialLocationSet, setInitialLocationSet] = useState(false);
   const isFollowingRef = useRef(false);
   const lastCameraUpdateRef = useRef(0);
+
+  // Coverage view mode
+  const [viewMode, setViewMode] = useState<"personal" | "group">("personal");
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null);
 
   // Draw mode state
   const [drawMode, setDrawMode] = useState(false);
@@ -135,6 +154,29 @@ export default function NativeMapScreen() {
     queryKey: ["/api/my-admin-branches"],
     enabled: !!user,
   });
+
+  // Groups (the original groups system — used for coverage overlay)
+  const { data: myGroups } = useQuery<Group[]>({
+    queryKey: ["/api/groups"],
+    enabled: !!user,
+  });
+
+  // Auto-select first group when groups load
+  useEffect(() => {
+    if (myGroups && myGroups.length > 0 && !selectedGroupId) {
+      setSelectedGroupId(myGroups[0].id);
+    }
+  }, [myGroups, selectedGroupId]);
+
+  // Group coverage points — only fetched in group mode
+  const { data: groupCoveragePoints } = useQuery<RoutePointData[]>({
+    queryKey: ["/api/groups", selectedGroupId, "coverage"],
+    enabled: viewMode === "group" && !!selectedGroupId,
+  });
+
+  const coveragePolylines = buildCoveragePolylines(
+    viewMode === "group" && groupCoveragePoints ? groupCoveragePoints : [],
+  );
 
   const { data: priorityAreas } = useQuery<PriorityArea[]>({
     queryKey: ["/api/my-priority-areas"],
@@ -431,8 +473,19 @@ export default function NativeMapScreen() {
             </Marker>
           ))}
 
-        {/* Active session track — the main map only ever shows the current
-            walk. Past routes live in the History tab (tap a walk to view it). */}
+        {/* Group coverage heat map (only visible in group mode when idle) */}
+        {viewMode === "group" && state === "idle" && coveragePolylines.map((poly, i) => (
+          <Polyline
+            key={`cov-${i}`}
+            coordinates={poly.coordinates}
+            strokeColor={poly.color}
+            strokeWidth={poly.width}
+            lineCap="round"
+            lineJoin="round"
+          />
+        ))}
+
+        {/* Active session track — always visible during a walk */}
         {currentTrackPoints.length >= 2 && (
           <Polyline
             coordinates={currentTrackPoints}
@@ -465,11 +518,54 @@ export default function NativeMapScreen() {
         </View>
       )}
 
-      {/* Location permission banner */}
+      {/* Me / Group toggle — only when idle, not drawing, and user has at least one group */}
+      {state === "idle" && !drawMode && (myGroups?.length ?? 0) > 0 && (
+        <View style={[styles.modeToggle, { top: insets.top + 8 }]}>
+          <Pressable
+            onPress={() => setViewMode("personal")}
+            style={[styles.modeBtn, viewMode === "personal" && styles.modeBtnActive]}
+          >
+            <Text style={[styles.modeBtnText, viewMode === "personal" && styles.modeBtnTextActive]}>Me</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setViewMode("group")}
+            style={[styles.modeBtn, viewMode === "group" && styles.modeBtnActive]}
+          >
+            <Text style={[styles.modeBtnText, viewMode === "group" && styles.modeBtnTextActive]}>Group</Text>
+          </Pressable>
+        </View>
+      )}
+
+      {/* Group selector — only when group mode + user has multiple groups */}
+      {state === "idle" && !drawMode && viewMode === "group" && (myGroups?.length ?? 0) > 1 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={[styles.groupSelectorRow, { top: insets.top + 52 }]}
+          contentContainerStyle={{ paddingHorizontal: 16, gap: 8 }}
+        >
+          {myGroups?.map((g) => (
+            <Pressable
+              key={g.id}
+              onPress={() => setSelectedGroupId(g.id)}
+              style={[styles.groupSelectorPill, selectedGroupId === g.id && styles.groupSelectorPillActive]}
+            >
+              <Text
+                style={[styles.groupSelectorText, selectedGroupId === g.id && styles.groupSelectorTextActive]}
+                numberOfLines={1}
+              >
+                {g.name}
+              </Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      )}
+
+      {/* Location permission banner — sits below the Me/Group toggle when visible */}
       {permStatus !== "granted" && state === "idle" && !drawMode && (
         <Pressable
           onPress={() => Linking.openSettings()}
-          style={[styles.permBanner, { top: insets.top + 8 }]}
+          style={[styles.permBanner, { top: insets.top + ((myGroups?.length ?? 0) > 0 ? 52 : 8) }]}
         >
           <Feather name="alert-triangle" size={14} color="#FFCC00" />
           <Text style={styles.permBannerText}>Enable "Always" location in Settings for better tracking</Text>
@@ -1107,6 +1203,60 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#6B7280",
     fontFamily: "Inter_400Regular",
+  },
+  modeToggle: {
+    position: "absolute",
+    alignSelf: "center",
+    flexDirection: "row",
+    backgroundColor: "rgba(15,15,35,0.9)",
+    borderRadius: 20,
+    padding: 3,
+    zIndex: 10,
+  },
+  modeBtn: {
+    paddingHorizontal: 18,
+    paddingVertical: 7,
+    borderRadius: 17,
+  },
+  modeBtnActive: {
+    backgroundColor: "#33C3F0",
+  },
+  modeBtnText: {
+    fontSize: 14,
+    fontWeight: "600" as const,
+    color: "#9CA3AF",
+    fontFamily: "Inter_600SemiBold",
+  },
+  modeBtnTextActive: {
+    color: "#fff",
+  },
+  groupSelectorRow: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 10,
+    flexGrow: 0,
+  },
+  groupSelectorPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: "rgba(15,15,35,0.85)",
+    borderWidth: 1,
+    borderColor: "#2D2D44",
+  },
+  groupSelectorPillActive: {
+    backgroundColor: "#33C3F0",
+    borderColor: "#33C3F0",
+  },
+  groupSelectorText: {
+    fontSize: 13,
+    fontWeight: "500" as const,
+    color: "#9CA3AF",
+    fontFamily: "Inter_500Medium",
+  },
+  groupSelectorTextActive: {
+    color: "#fff",
   },
   permBanner: {
     position: "absolute",

@@ -14,8 +14,8 @@ route was still drawn all over the map (looked like an active/recent session).
 When given the choice the user explicitly picked "a completely clean map — no
 past routes at all; coverage history lives only in the History tab."
 
-**How to apply:** Do not re-add a coverage heat-map (or group-coverage overlay,
-Me/Group toggle, date filter) to the live map. Past routes are viewable in
-History → tap a walk → `SessionDetail` already draws that walk's route with
-start/end markers. If group-coverage comparison is wanted later, build it on a
-dedicated screen/tab, not the live map.
+**How to apply:** The Me/Group toggle on the main map is wired to `/api/groups`
+(the original groups system, 91+ memberships). Do NOT wire it to `/api/my-teams`
+or `/api/teams/:id/coverage` — that is the newer teams system with very few members
+and will show empty coverage for almost everyone. Personal ("Me") mode is the default
+clean map; group coverage only renders when the user explicitly switches to "Group" mode.
