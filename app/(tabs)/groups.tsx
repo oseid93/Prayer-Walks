@@ -692,14 +692,6 @@ export default function GroupsScreen() {
           </>
         )}
 
-        <View style={{ height: 24 }} />
-        <Pressable
-          onPress={handleLogout}
-          style={({ pressed }) => [styles.signOutBtn, { opacity: pressed ? 0.7 : 1 }]}
-        >
-          <Feather name="log-out" size={18} color="#FF3B30" />
-          <Text style={styles.signOutText}>Sign Out</Text>
-        </Pressable>
       </ScrollView>
 
       {/* ── Account Modal ── */}
@@ -733,6 +725,13 @@ export default function GroupsScreen() {
               style={({ pressed }) => [styles.modalButton, { opacity: pressed || updateNameMutation.isPending ? 0.8 : 1 }]}
             >
               {updateNameMutation.isPending ? <ActivityIndicator color="#fff" /> : <Text style={styles.modalButtonText}>Save Changes</Text>}
+            </Pressable>
+            <Pressable
+              onPress={() => { setShowAccountModal(false); handleLogout(); }}
+              style={({ pressed }) => [styles.signOutBtn, { opacity: pressed ? 0.7 : 1, marginTop: 4 }]}
+            >
+              <Feather name="log-out" size={16} color="#FF3B30" />
+              <Text style={styles.signOutText}>Sign Out</Text>
             </Pressable>
           </View>
         </View>
