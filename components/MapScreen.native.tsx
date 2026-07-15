@@ -168,14 +168,24 @@ export default function NativeMapScreen() {
     }
   }, [myGroups, selectedGroupId]);
 
-  // Group coverage points — only fetched in group mode
+  // Personal coverage — always fetched so "Me" mode is instant on toggle
+  const { data: personalCoveragePoints } = useQuery<RoutePointData[]>({
+    queryKey: ["/api/coverage"],
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+
+  // Group coverage points — fetched when group mode is active
   const { data: groupCoveragePoints } = useQuery<RoutePointData[]>({
     queryKey: ["/api/groups", selectedGroupId, "coverage"],
     enabled: viewMode === "group" && !!selectedGroupId,
+    staleTime: 60_000,
   });
 
   const coveragePolylines = buildCoveragePolylines(
-    viewMode === "group" && groupCoveragePoints ? groupCoveragePoints : [],
+    viewMode === "group"
+      ? (groupCoveragePoints ?? [])
+      : (personalCoveragePoints ?? []),
   );
 
   const { data: priorityAreas } = useQuery<PriorityArea[]>({
@@ -473,8 +483,8 @@ export default function NativeMapScreen() {
             </Marker>
           ))}
 
-        {/* Group coverage heat map (only visible in group mode when idle) */}
-        {viewMode === "group" && state === "idle" && coveragePolylines.map((poly, i) => (
+        {/* Coverage heat map — personal in Me mode, group in Group mode, hidden during active walk */}
+        {state === "idle" && coveragePolylines.map((poly, i) => (
           <Polyline
             key={`cov-${i}`}
             coordinates={poly.coordinates}
